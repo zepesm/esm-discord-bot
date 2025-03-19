@@ -40,15 +40,18 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`File server accessible at ${process.env.HOST || `http://localhost:${PORT}`}`);
   
+  // Get Discord token from .env file or system environment variables
+  const discordToken = process.env.DISCORD_TOKEN;
+  
   // Only attempt to login if we have a token
-  if (process.env.DISCORD_TOKEN) {
-    client.login(process.env.DISCORD_TOKEN)
+  if (discordToken) {
+    client.login(discordToken)
       .catch(error => {
         console.error('Failed to log in to Discord:', error);
         process.exit(1);
       });
   } else {
-    console.error('No Discord token provided. Set DISCORD_TOKEN in .env file.');
+    console.error('No Discord token found. Set DISCORD_TOKEN in .env file or as a system environment variable.');
     process.exit(1);
   }
 }); 
