@@ -92,7 +92,7 @@ class ScreenshotService {
         
         // Use Promise.race to implement timeout
         await Promise.race([
-          execPromise(`DISPLAY=${display} x64 -silent -autoload -autostart-warp -autostartprgmode 1 -VICIIborders 0 -VICIIfilter 0 -exitscreenshotdelay 3 -exitscreenshotname "${screenshotPath}" "${prgFilePath}"`),
+          execPromise(`DISPLAY=${display} x64 -silent -autoload -autostart-warp -autostartprgmode 1 -VICIIborders 0 -VICIIfilter 0 -exitscreenshotname "${screenshotPath}" "${prgFilePath}"`),
           timeoutPromise
         ]);
         
