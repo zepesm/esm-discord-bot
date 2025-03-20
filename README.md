@@ -4,7 +4,7 @@ A Discord bot that allows users to upload Commodore 64 .prg files and generates 
 
 ## Features
 
-- Listens for messages beginning with the command keyword `c64`
+- Automatically processes any .prg files uploaded to channels where the bot is present
 - Accepts Commodore 64 `.prg` files as attachments
 - Saves attached files to MinIO storage
 - Generates a direct URL to the online C64 emulator with the file pre-loaded
@@ -38,20 +38,24 @@ The bot supports configuration through environment variables. You can set these 
 
 System environment variables take precedence over those defined in the `.env` file. The bot will use the following default values if none are provided:
 
-| Variable | Description | Default Value |
-|----------|-------------|---------------|
-| `DISCORD_TOKEN` | Discord bot token | *(required)* |
-| `COMMAND_PREFIX` | Command prefix for the bot | `c64` |
-| `PORT` | HTTP server port | `3000` |
-| `PUBLIC_HOST` | Public URL of your server | `http://localhost:<PORT>` |
-| `MINIO_ENDPOINT` | MinIO server hostname | `minio` |
-| `MINIO_PORT` | MinIO server port | `9000` |
-| `MINIO_ACCESS_KEY` | MinIO access key | `minioadmin` |
-| `MINIO_SECRET_KEY` | MinIO secret key | `minioadmin` |
-| `MINIO_BUCKET` | MinIO bucket name for files | `c64files` |
-| `MINIO_USE_SSL` | Whether to use SSL for MinIO | `false` |
-| `MAX_FILES` | Maximum number of files to keep | `100` |
-| `MAX_AGE_DAYS` | Maximum age of files in days | `7` |
+| Variable             | Description                              | Default Value             |
+| -------------------- | ---------------------------------------- | ------------------------- |
+| `DISCORD_TOKEN`      | Discord bot token                        | _(required)_              |
+| `COMMAND_PREFIX`     | Command prefix for the bot               | `c64`                     |
+| `PORT`               | HTTP server port                         | `3000`                    |
+| `PUBLIC_HOST`        | Public URL of your server                | `http://localhost:<PORT>` |
+| `MINIO_ENDPOINT`     | MinIO server hostname                    | `minio`                   |
+| `MINIO_PORT`         | MinIO server port                        | `9000`                    |
+| `MINIO_ACCESS_KEY`   | MinIO access key                         | `minioadmin`              |
+| `MINIO_SECRET_KEY`   | MinIO secret key                         | `minioadmin`              |
+| `MINIO_BUCKET`       | MinIO bucket name for files              | `c64files`                |
+| `MINIO_USE_SSL`      | Whether to use SSL for MinIO             | `false`                   |
+| `EMULATOR_OPEN_ROMS` | Whether to load default ROMs in emulator | `true`                    |
+| `EMULATOR_BORDER`    | Whether to show border in emulator       | `false`                   |
+| `EMULATOR_AUTOLOAD`  | Whether to autoload the program          | `true`                    |
+| `EMULATOR_WIDE`      | Whether to use widescreen mode           | `false`                   |
+| `MAX_FILES`          | Maximum number of files to keep          | `100`                     |
+| `MAX_AGE_DAYS`       | Maximum age of files in days             | `7`                       |
 
 ## Discord Bot Setup
 
@@ -68,6 +72,7 @@ System environment variables take precedence over those defined in the `.env` fi
 If you encounter issues with your Discord token, you can verify it using the included test scripts:
 
 1. **Test the token in your .env file**:
+
    ```
    npm run test-token
    ```
@@ -78,6 +83,7 @@ If you encounter issues with your Discord token, you can verify it using the inc
    ```
 
 If your token is invalid, you may need to reset it in the Discord Developer Portal:
+
 1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
 2. Select your application and navigate to the "Bot" tab
 3. Click "Reset Token" to generate a new token
@@ -95,6 +101,7 @@ If your token is invalid, you may need to reset it in the Discord Developer Port
 To connect to an existing MinIO instance instead of creating a new one:
 
 1. Update your `.env` file with the connection details for your existing MinIO server:
+
    ```
    MINIO_ENDPOINT=your-minio-server-hostname-or-ip
    MINIO_PORT=9000
@@ -108,7 +115,6 @@ To connect to an existing MinIO instance instead of creating a new one:
    ```
    npm run test-minio
    ```
-   
 3. Start the Discord bot:
    ```
    npm start
@@ -137,13 +143,25 @@ DISCORD_TOKEN=your_token MINIO_ENDPOINT=your-server docker-compose up -d
 
 ## Usage
 
-1. Type `c64` in a Discord channel where the bot is present
-2. Attach a `.prg` file to your message
-3. The bot will save the file to MinIO and respond with a link to play it in the online emulator
+There are two ways to use the bot:
+
+1. **Automatic Mode** (Recommended):
+
+   - Simply upload a `.prg` file to any channel where the bot is present
+   - The bot will automatically process the file and reply with an emulator link
+
+2. **Manual Mode**:
+   - Type `c64` in a Discord channel followed by your message
+   - Attach a `.prg` file to your message
+   - The bot will process the file and respond with an emulator link
+   - Using this mode will also give you feedback about non-PRG files
+
+The bot will save the file to MinIO storage and respond with a link to play it in the online C64 emulator.
 
 ## File Management
 
 The bot includes automatic file management:
+
 - Only keeps the latest 100 files
 - Automatically deletes files older than 7 days
 - You can adjust these settings using the `MAX_FILES` and `MAX_AGE_DAYS` environment variables

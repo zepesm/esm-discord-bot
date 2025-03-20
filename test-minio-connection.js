@@ -6,7 +6,7 @@ const getEnv = (key, defaultValue = '') => process.env[key] || defaultValue;
 
 // Get MinIO configuration from environment variables
 const minioEndpoint = getEnv('MINIO_ENDPOINT', 'minio');
-const minioPort = parseInt(getEnv('MINIO_PORT', '9000'));
+const minioPort = getEnv('MINIO_PORT') ? parseInt(getEnv('MINIO_PORT', '9000')) : undefined;
 const minioUseSSL = getEnv('MINIO_USE_SSL', 'false').toLowerCase() === 'true';
 const minioAccessKey = getEnv('MINIO_ACCESS_KEY', 'minioadmin');
 const minioSecretKey = getEnv('MINIO_SECRET_KEY', 'minioadmin');
@@ -14,7 +14,7 @@ const minioBucket = getEnv('MINIO_BUCKET', 'c64files');
 
 console.log('Testing MinIO connection with the following configuration:');
 console.log(`Endpoint: ${minioEndpoint}`);
-console.log(`Port: ${minioPort}`);
+console.log(`Port: ${minioPort || 'Default (using reverse proxy)'}`);
 console.log(`Use SSL: ${minioUseSSL}`);
 console.log(`Access Key: ${minioAccessKey.substring(0, 3)}${'*'.repeat(minioAccessKey.length - 3)}`);
 console.log(`Secret Key: ${'*'.repeat(8)}`);
@@ -62,7 +62,7 @@ async function testConnection() {
   } catch (error) {
     console.error('\n❌ Error connecting to MinIO server:', error);
     console.error('\nPlease check your configuration:');
-    console.error(`- Make sure the MinIO server is running at ${minioEndpoint}:${minioPort}`);
+    console.error(`- Make sure the MinIO server is running at ${minioEndpoint}${minioPort ? `:${minioPort}` : ' (using reverse proxy)'}`);
     console.error('- Verify that your access key and secret key are correct');
     console.error('- Check if firewall rules allow connections to the MinIO server');
     console.error('\nEnvironment Variables Source:');

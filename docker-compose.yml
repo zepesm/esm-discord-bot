@@ -7,11 +7,11 @@ services:
       # Discord configuration
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - COMMAND_PREFIX=${COMMAND_PREFIX:-c64}
-      
+
       # Server configuration
       - PORT=${PORT:-3000}
       - PUBLIC_HOST=${PUBLIC_HOST:-http://localhost:3000}
-      
+
       # MinIO configuration
       - MINIO_ENDPOINT=${MINIO_ENDPOINT:-your-minio-server}
       - MINIO_PORT=${MINIO_PORT:-9000}
@@ -19,7 +19,13 @@ services:
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-your-secret-key}
       - MINIO_BUCKET=${MINIO_BUCKET:-c64files}
       - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
-      
+
+      # Emulator configuration
+      - EMULATOR_OPEN_ROMS=${EMULATOR_OPEN_ROMS:-true}
+      - EMULATOR_BORDER=${EMULATOR_BORDER:-false}
+      - EMULATOR_AUTOLOAD=${EMULATOR_AUTOLOAD:-true}
+      - EMULATOR_WIDE=${EMULATOR_WIDE:-false}
+
       # File management configuration
       - MAX_FILES=${MAX_FILES:-100}
       - MAX_AGE_DAYS=${MAX_AGE_DAYS:-7}
@@ -28,4 +34,4 @@ services:
 
 networks:
   coolify:
-    external: true 
+    external: true
