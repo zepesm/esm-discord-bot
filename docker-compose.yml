@@ -4,9 +4,28 @@ services:
     build: .
     restart: unless-stopped
     environment:
+      # Discord configuration
       - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - COMMAND_PREFIX=${COMMAND_PREFIX:-c64}
+      
+      # Server configuration
+      - PORT=${PORT:-3000}
+      - PUBLIC_HOST=${PUBLIC_HOST:-http://localhost:3000}
+      
+      # MinIO configuration
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-your-minio-server}
+      - MINIO_PORT=${MINIO_PORT:-9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-your-access-key}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-your-secret-key}
+      - MINIO_BUCKET=${MINIO_BUCKET:-c64files}
+      - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
+      
+      # File management configuration
+      - MAX_FILES=${MAX_FILES:-100}
+      - MAX_AGE_DAYS=${MAX_AGE_DAYS:-7}
     networks:
       - coolify
+
 networks:
   coolify:
-    external: true
+    external: true 

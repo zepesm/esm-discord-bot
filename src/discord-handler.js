@@ -2,9 +2,14 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const { createWriteStream } = require('fs');
+const os = require('os');
+const minioService = require('./minio-service');
+
+// Helper function to get environment variables with fallbacks
+const getEnv = (key, defaultValue = '') => process.env[key] || defaultValue;
 
 // Command prefix for bot
-const COMMAND_PREFIX = 'c64';
+const COMMAND_PREFIX = getEnv('COMMAND_PREFIX', 'c64');
 
 // Handler for Discord messages
 async function handleDiscordMessage(message) {
@@ -43,13 +48,19 @@ async function processAttachment(attachment, message) {
     // Generate a unique filename to prevent overwrites
     const timestamp = Date.now();
     const filename = `${path.basename(name, '.prg')}-${timestamp}.prg`;
-    const filePath = path.join(__dirname, '../public/prg', filename);
     
-    // Download and save the file
-    await downloadFile(url, filePath);
+    // Create a temporary directory for file download
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'c64bot-'));
+    const tempFilePath = path.join(tempDir, filename);
     
-    // Generate emulator URL
-    const fileUrl = `${process.env.HOST || `http://localhost:${process.env.PORT || 3000}`}/files/prg/${filename}`;
+    // Download the file to temp location
+    await downloadFile(url, tempFilePath);
+    
+    // Upload the file to MinIO
+    await minioService.uploadFile(tempFilePath, filename);
+    
+    // Get file URL
+    const fileUrl = minioService.getFileUrl(filename);
     const emulatorUrl = `https://vc64web.github.io/#${fileUrl}`;
     
     // Reply to the user with the emulator link
@@ -58,7 +69,11 @@ async function processAttachment(attachment, message) {
       allowedMentions: { repliedUser: false }
     });
     
-    console.log(`Processed .prg file: ${filename}`);
+    // Clean up temp file
+    fs.unlinkSync(tempFilePath);
+    fs.rmdirSync(tempDir);
+    
+    console.log(`Processed .prg file: ${filename} and stored in MinIO`);
   } catch (error) {
     console.error(`Error processing attachment ${name}:`, error);
     await message.reply(`Sorry, I couldn't process your file. Error: ${error.message}`);

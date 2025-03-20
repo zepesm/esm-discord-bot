@@ -1,56 +1,72 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const minioService = require('./minio-service');
 
-// Set up express static file server
-function setupFileServer(app) {
-  // Serve static files from public directory
-  app.use('/files', express.static(path.join(__dirname, '../public')));
+// Helper function to get environment variables with fallbacks
+const getEnv = (key, defaultValue = '') => process.env[key] || defaultValue;
+
+// Set up express file server
+async function setupFileServer(app) {
+  // Initialize MinIO bucket
+  await minioService.initializeBucket();
   
   // Create a simple index for debugging
-  app.get('/', (req, res) => {
-    res.send(`
-      <h1>C64 Bot File Server</h1>
-      <p>This server hosts .prg files for the C64 Discord Bot.</p>
-      <h2>Available Files:</h2>
-      <ul>
-        ${listPrgFiles().map(file => `
-          <li>
-            <a href="/files/prg/${file}" target="_blank">${file}</a>
-            <a href="https://vc64web.github.io/#${process.env.HOST || `http://localhost:${process.env.PORT || 3000}`}/files/prg/${file}" target="_blank">(Play in Emulator)</a>
-          </li>
-        `).join('')}
-      </ul>
-    `);
+  app.get('/', async (req, res) => {
+    try {
+      const files = await minioService.listFiles();
+      
+      res.send(`
+        <h1>C64 Bot File Server</h1>
+        <p>This server hosts .prg files for the C64 Discord Bot.</p>
+        <h2>Available Files:</h2>
+        <ul>
+          ${files.map(file => `
+            <li>
+              <a href="${file.url}" target="_blank">${file.filename}</a>
+              <a href="${file.playUrl}" target="_blank">(Play in Emulator)</a>
+            </li>
+          `).join('')}
+        </ul>
+      `);
+    } catch (error) {
+      console.error('Error listing files:', error);
+      res.status(500).send('Error listing files');
+    }
+  });
+  
+  // Add route to serve file content (replaces the static file serving)
+  app.get('/api/file/:filename', async (req, res) => {
+    try {
+      const filename = req.params.filename;
+      
+      // Get a readable stream of the file from MinIO
+      const fileStream = await minioService.getFileStream(filename);
+      
+      // Set appropriate headers
+      res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      
+      // Pipe the file stream to the response
+      fileStream.pipe(res);
+    } catch (error) {
+      console.error('Error serving file:', error);
+      res.status(404).send('File not found');
+    }
   });
   
   // Add route to get list of all prg files (JSON)
-  app.get('/api/files', (req, res) => {
-    res.json({
-      files: listPrgFiles().map(filename => ({
-        filename,
-        url: `${process.env.HOST || `http://localhost:${process.env.PORT || 3000}`}/files/prg/${filename}`,
-        playUrl: `https://vc64web.github.io/#${process.env.HOST || `http://localhost:${process.env.PORT || 3000}`}/files/prg/${filename}`
-      }))
-    });
+  app.get('/api/files', async (req, res) => {
+    try {
+      const files = await minioService.listFiles();
+      res.json({ files });
+    } catch (error) {
+      console.error('Error listing files:', error);
+      res.status(500).json({ error: 'Error listing files' });
+    }
   });
 }
 
-// Helper to list all prg files in the storage directory
-function listPrgFiles() {
-  const prgDir = path.join(__dirname, '../public/prg');
-  
-  // Ensure directory exists
-  if (!fs.existsSync(prgDir)) {
-    fs.mkdirSync(prgDir, { recursive: true });
-    return [];
-  }
-  
-  return fs.readdirSync(prgDir)
-    .filter(file => file.endsWith('.prg') || file.endsWith('.PRG'));
-}
-
 module.exports = {
-  setupFileServer,
-  listPrgFiles
+  setupFileServer
 }; 

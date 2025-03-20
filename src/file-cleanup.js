@@ -1,39 +1,29 @@
 const fs = require('fs');
 const path = require('path');
+const minioService = require('./minio-service');
+
+// Helper function to get environment variables with fallbacks
+const getEnv = (key, defaultValue = '') => process.env[key] || defaultValue;
 
 // Configuration
-const MAX_FILES = 100; // Maximum number of files to keep
-const MAX_AGE_DAYS = 7; // Files older than this many days will be deleted
+const MAX_FILES = parseInt(getEnv('MAX_FILES', '100')); // Maximum number of files to keep
+const MAX_AGE_DAYS = parseInt(getEnv('MAX_AGE_DAYS', '7')); // Files older than this many days will be deleted
 
 // Main cleanup function
-function cleanupFiles() {
-  const prgDir = path.join(__dirname, '../public/prg');
-  
-  // Ensure directory exists
-  if (!fs.existsSync(prgDir)) {
-    console.log('PRG directory not found, skipping cleanup');
-    return;
-  }
-  
+async function cleanupFiles() {
   try {
-    // Get all .prg files in the directory
-    const files = fs.readdirSync(prgDir)
-      .filter(file => file.endsWith('.prg') || file.endsWith('.PRG'))
-      .map(filename => ({
-        filename,
-        path: path.join(prgDir, filename),
-        stats: fs.statSync(path.join(prgDir, filename))
-      }))
-      .sort((a, b) => b.stats.mtime.getTime() - a.stats.mtime.getTime()); // Sort by modification time (newest first)
+    // Get all files from MinIO
+    const files = await minioService.listFiles();
     
-    console.log(`Found ${files.length} .prg files`);
+    console.log(`Found ${files.length} .prg files in MinIO`);
     
     // Delete files that exceed the maximum count
     if (files.length > MAX_FILES) {
       console.log(`Cleaning up old files (keeping ${MAX_FILES} newest files)`);
       
+      // Files are already sorted by lastModified (newest first) from the listFiles function
       for (let i = MAX_FILES; i < files.length; i++) {
-        fs.unlinkSync(files[i].path);
+        await minioService.deleteFile(files[i].filename);
         console.log(`Deleted ${files[i].filename} (exceeded max files limit)`);
       }
     }
@@ -44,8 +34,8 @@ function cleanupFiles() {
     
     // Delete files older than the maximum age
     for (const file of files.slice(0, MAX_FILES)) {
-      if (file.stats.mtime.getTime() < cutoffDate.getTime()) {
-        fs.unlinkSync(file.path);
+      if (file.lastModified.getTime() < cutoffDate.getTime()) {
+        await minioService.deleteFile(file.filename);
         console.log(`Deleted ${file.filename} (older than ${MAX_AGE_DAYS} days)`);
       }
     }
@@ -65,7 +55,7 @@ function scheduleCleanup() {
   const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
   setInterval(cleanupFiles, TWENTY_FOUR_HOURS);
   
-  console.log('File cleanup scheduled to run daily');
+  console.log(`File cleanup scheduled to run daily (MAX_FILES: ${MAX_FILES}, MAX_AGE_DAYS: ${MAX_AGE_DAYS})`);
 }
 
 module.exports = {
