@@ -111,7 +111,19 @@ class PrgFileHandler extends BaseHandler {
       let screenshotUrl = null;
       try {
         // Capture screenshot using the headless emulator
-        const screenshotPath = await screenshotService.captureScreenshot(tempFilePath);
+        console.log(`Attempting to generate screenshot for ${name}...`);
+        
+        // Create a promise that times out after 15 seconds
+        const screenshotPromise = screenshotService.captureScreenshot(tempFilePath);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Screenshot generation timed out')), 15000)
+        );
+        
+        // Race between the screenshot generation and the timeout
+        const screenshotPath = await Promise.race([
+          screenshotPromise,
+          timeoutPromise
+        ]);
         
         // Upload screenshot to MinIO
         const screenshotFilename = `${path.basename(name, ".prg")}-${timestamp}.png`;
@@ -120,55 +132,87 @@ class PrgFileHandler extends BaseHandler {
         console.log(`Screenshot generated and uploaded: ${screenshotUrl}`);
         
         // Clean up screenshot file
-        fs.unlinkSync(screenshotPath);
+        try {
+          fs.unlinkSync(screenshotPath);
+        } catch (unlinkError) {
+          console.error(`Error removing screenshot file: ${unlinkError.message}`);
+        }
       } catch (screenshotError) {
-        console.error(`Error generating screenshot: ${screenshotError.message}`);
+        console.error(`Error generating screenshot for ${name}: ${screenshotError.message}`);
         // Continue without screenshot if there's an error
       }
 
       // Reply to the user with the emulator link using an embed
-      await processingMessage.edit({
-        content: null, // No text content outside the embed
-        embeds: [
-          {
-            title: `${name}`,
-            description: ``,
-            color: 0x5865F2, // Discord blue color
-            thumbnail: screenshotUrl ? {
-              url: screenshotUrl
-            } : {},
-            fields: [],
-            footer: {
-              text: "ESM Rulez"
-            }
-          }
-        ],
-        components: [
-          {
-            type: 1, // Action Row
-            components: [
-              {
-                type: 2, // Button
-                style: 5, // Link button
-                label: "Emulate!",
-                url: emulatorUrl
+      try {
+        await processingMessage.edit({
+          content: null, // No text content outside the embed
+          embeds: [
+            {
+              title: `${name}`,
+              description: `${screenshotUrl ? '' : 'Screenshot generation failed. '}Click the button below to emulate!`,
+              color: 0x5865F2, // Discord blue color
+              thumbnail: screenshotUrl ? {
+                url: screenshotUrl
+              } : {},
+              fields: [],
+              footer: {
+                text: "ESM Rulez"
               }
-            ]
-          }
-        ],
-        allowedMentions: { repliedUser: false },
-      });
+            }
+          ],
+          components: [
+            {
+              type: 1, // Action Row
+              components: [
+                {
+                  type: 2, // Button
+                  style: 5, // Link button
+                  label: "Emulate!",
+                  url: emulatorUrl
+                }
+              ]
+            }
+          ],
+          allowedMentions: { repliedUser: false },
+        });
+      } catch (editError) {
+        console.error(`Error updating message: ${editError.message}`);
+        // If edit fails, try to send a new message
+        await message.reply({
+          content: `Here's your emulator link for ${name}!`,
+          components: [
+            {
+              type: 1, // Action Row
+              components: [
+                {
+                  type: 2, // Button
+                  style: 5, // Link button
+                  label: "Emulate!",
+                  url: emulatorUrl
+                }
+              ]
+            }
+          ]
+        });
+      }
 
-      // Clean up temp file
-      fs.unlinkSync(tempFilePath);
-      fs.rmdirSync(tempDir);
+      // Clean up temp files
+      try {
+        fs.unlinkSync(tempFilePath);
+        fs.rmdirSync(tempDir);
+      } catch (cleanupError) {
+        console.error(`Error cleaning up temp files: ${cleanupError.message}`);
+      }
 
       console.log(`Processed .prg file: ${filename} and stored in MinIO`);
     } catch (error) {
       console.error(`Error processing attachment ${name}:`, error);
-      await message.reply(
-        `Sorry, I couldn't process your file. Error: ${error.message}`
-      );
+      // Try to update processing message or send a new one if that fails
+      try {
+        await processingMessage.edit(`Sorry, I couldn't process your file. Error: ${error.message}`);
+      } catch (editError) {
+        await message.reply(`Sorry, I couldn't process your file. Error: ${error.message}`);
+      }
     }
   }
 
