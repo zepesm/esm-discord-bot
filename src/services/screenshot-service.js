@@ -110,7 +110,7 @@ sleep 5 # Keep running for a while
         console.log(`Capturing screenshot for ${basename} with delay ${delay}ms on display ${display}`);
         
         // Use the correct order of parameters
-        const viceCmd = `DISPLAY=${display} x64 -silent -autoload "${prgFilePath}" -autostart-warp -autostartprgmode 1 -VICIIborders 0 -VICIIfilter 0 -exitscreenshot "${screenshotPath}"`;
+         const viceCmd = `DISPLAY=${display} x64 -silent -console -limitcycles 5000000 -autoload "${prgFilePath}" -autostart-warp -autostartprgmode 1 -VICIIborders 0 -VICIIfilter 0 -exitscreenshot "${screenshotPath}"`;
         console.log(`Running VICE command: ${viceCmd}`);
         
         // Use Promise.race to implement timeout
