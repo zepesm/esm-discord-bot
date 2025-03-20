@@ -6,12 +6,15 @@ const { Client, GatewayIntentBits, Events, Partials } = require('discord.js');
 const { handleDiscordMessage } = require('./discord-handler');
 const { setupFileServer } = require('./file-server');
 const { scheduleCleanup } = require('./file-cleanup');
-const { initializeBucket, testConnection } = require('./minio-service');
+const { initializeBucket, testConnection, minioClient } = require('./minio-service');
 const { initializeHandlers } = require('./handlers');
 const ReactionHandler = require('./handlers/reaction-handler');
 
 // Load environment variables with fallbacks
 const getEnv = (key, defaultValue = '') => process.env[key] || defaultValue;
+
+// Bucket name for MinIO
+const BUCKET_NAME = getEnv('MINIO_BUCKET', 'c64files');
 
 // Initialize Discord client
 const client = new Client({
@@ -72,6 +75,20 @@ async function startApp() {
     // Initialize MinIO bucket
     await initializeBucket();
     console.log('✅ MinIO bucket initialized successfully');
+    
+    // Ensure the screenshots directory has policy set in MinIO
+    try {
+      const objectName = 'screenshots/';
+      await minioClient.putObject(
+        BUCKET_NAME,
+        objectName,
+        '',
+        { 'Content-Type': 'application/directory' }
+      );
+      console.log('✅ Screenshots directory created in MinIO');
+    } catch (err) {
+      console.warn('Warning: Could not create screenshots directory:', err.message);
+    }
     
     // Set up file server
     await setupFileServer(app);

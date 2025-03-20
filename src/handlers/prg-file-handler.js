@@ -5,6 +5,7 @@ const { createWriteStream } = require("fs");
 const os = require("os");
 const minioService = require("../minio-service");
 const BaseHandler = require("./base-handler");
+const screenshotService = require("../services/screenshot-service");
 
 // Helper function to get environment variables with fallbacks
 const getEnv = (key, defaultValue = "") => process.env[key] || defaultValue;
@@ -83,6 +84,9 @@ class PrgFileHandler extends BaseHandler {
     }
 
     try {
+      // Let the user know we're processing their file
+      const processingMessage = await message.reply(`Processing ${name}... generating screenshot and emulator link.`);
+      
       // Generate a unique filename to prevent overwrites
       const timestamp = Date.now();
       const filename = `${path.basename(name, ".prg")}-${timestamp}.prg`;
@@ -103,15 +107,36 @@ class PrgFileHandler extends BaseHandler {
       // Create emulator URL with the JSON configuration
       const emulatorUrl = `https://vc64web.github.io/#${encodeURIComponent(JSON.stringify(emulatorConfig))}`;
 
+      // Generate screenshot
+      let screenshotUrl = null;
+      try {
+        // Capture screenshot using the headless emulator
+        const screenshotPath = await screenshotService.captureScreenshot(tempFilePath);
+        
+        // Upload screenshot to MinIO
+        const screenshotFilename = `${path.basename(name, ".prg")}-${timestamp}.png`;
+        screenshotUrl = await minioService.uploadFile(screenshotPath, screenshotFilename, 'screenshots');
+        
+        console.log(`Screenshot generated and uploaded: ${screenshotUrl}`);
+        
+        // Clean up screenshot file
+        fs.unlinkSync(screenshotPath);
+      } catch (screenshotError) {
+        console.error(`Error generating screenshot: ${screenshotError.message}`);
+        // Continue without screenshot if there's an error
+      }
+
       // Reply to the user with the emulator link using an embed
-      await message.reply({
+      await processingMessage.edit({
         content: null, // No text content outside the embed
         embeds: [
           {
             title: `${name}`,
             description: ``,
             color: 0x5865F2, // Discord blue color
-            thumbnail: {},
+            thumbnail: screenshotUrl ? {
+              url: screenshotUrl
+            } : {},
             fields: [],
             footer: {
               text: "ESM Rulez"

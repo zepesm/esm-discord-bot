@@ -1,8 +1,12 @@
 version: "3"
 services:
   discord-bot:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
+    volumes:
+      - /tmp:/tmp
     environment:
       # Discord configuration
       - DISCORD_TOKEN=${DISCORD_TOKEN}
@@ -29,6 +33,11 @@ services:
       # File management configuration
       - MAX_FILES=${MAX_FILES:-100}
       - MAX_AGE_DAYS=${MAX_AGE_DAYS:-7}
+
+      # Screenshot configuration
+      - SCREENSHOT_DELAY=${SCREENSHOT_DELAY:-2000}
+    ports:
+      - "${PORT:-3000}:3000"
     networks:
       - coolify
 

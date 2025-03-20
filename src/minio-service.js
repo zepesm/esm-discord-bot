@@ -114,22 +114,67 @@ async function setBucketPublicReadPolicy() {
   }
 }
 
-// Upload a file
-async function uploadFile(filepath, objectName) {
+/**
+ * Upload a file to MinIO
+ * @param {string} filePath - Path to the local file
+ * @param {string} filename - Name to use for the uploaded file
+ * @param {string} [folderName=''] - Optional folder within bucket
+ * @returns {Promise<string>} Public URL to the uploaded file
+ */
+async function uploadFile(filePath, filename, folderName = '') {
   try {
-    // Ensure bucket exists
-    await initializeBucket();
+    // Read file content
+    const fileContent = await fs.promises.readFile(filePath);
     
-    // Upload file
-    await minioClient.fPutObject(BUCKET_NAME, objectName, filepath);
-    console.log(`File ${objectName} uploaded successfully to MinIO bucket ${BUCKET_NAME}`);
+    // Determine content type
+    const contentType = getContentType(filename);
     
-    // Generate URL
-    return await getFileUrl(objectName);
+    // Generate object name (include folder if specified)
+    const objectName = folderName 
+      ? `${folderName}/${filename}` 
+      : filename;
+    
+    // Upload to MinIO
+    await minioClient.putObject(
+      BUCKET_NAME,
+      objectName,
+      fileContent,
+      {
+        'Content-Type': contentType,
+      }
+    );
+    
+    // Generate public URL for the file
+    const publicHost = getPublicHost();
+    const fileUrl = `${publicHost}/api/files/${encodeURIComponent(objectName)}`;
+    
+    console.log(`File uploaded to MinIO: ${objectName}`);
+    return fileUrl;
   } catch (error) {
     console.error('Error uploading file to MinIO:', error);
     throw error;
   }
+}
+
+/**
+ * Determine content type based on file extension
+ * @param {string} filename 
+ * @returns {string} Content type
+ */
+function getContentType(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  
+  // Map file extensions to content types
+  const contentTypes = {
+    '.prg': 'application/octet-stream',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.txt': 'text/plain',
+  };
+  
+  return contentTypes[ext] || 'application/octet-stream';
 }
 
 // Upload from a URL
@@ -190,11 +235,18 @@ async function downloadFile(objectName, destination) {
   }
 }
 
+/**
+ * Get the public host URL based on environment configuration
+ * @returns {string} The public host URL
+ */
+function getPublicHost() {
+  return getEnv('PUBLIC_HOST', `http://localhost:${getEnv('PORT', '3000')}`);
+}
+
 // Get a file's URL - using direct public links
 function getFileUrl(objectName) {
   // Use PUBLIC_HOST as the base for direct links
-  const baseUrl = getEnv('PUBLIC_HOST', `http://localhost:${getEnv('PORT', '3000')}`);
-  return `${baseUrl}/${BUCKET_NAME}/${objectName}`;
+  return `${getPublicHost()}/${BUCKET_NAME}/${objectName}`;
 }
 
 // List all files
@@ -270,7 +322,9 @@ async function deleteFile(objectName) {
   }
 }
 
+// Export functions
 module.exports = {
+  getEmulatorConfig,
   testConnection,
   initializeBucket,
   uploadFile,
@@ -280,5 +334,5 @@ module.exports = {
   listFiles,
   getFileStream,
   deleteFile,
-  getEmulatorConfig
+  minioClient, // Export the minioClient for direct use
 }; 

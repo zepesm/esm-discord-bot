@@ -11,6 +11,7 @@ A Discord bot that allows users to upload Commodore 64 .prg files and generates 
 - Responds with an inline clickable link in Discord
 - Automatic file cleanup to manage storage space
 - Modular architecture allowing easy addition of new bot actions and commands
+- Automatically generates screenshots of uploaded PRG files using headless VICE emulator
 
 ## Setup
 
@@ -194,6 +195,24 @@ To add new functionality to the bot, you can create custom handlers:
 4. Register your handler in `src/handlers/index.js`
 
 See `src/handlers/README.md` for detailed documentation and examples.
+
+## Screenshot Generation
+
+The bot includes a headless emulator setup using VICE and Xvfb to automatically generate screenshots of uploaded PRG files:
+
+- Each uploaded PRG file is run in the emulator to capture a screenshot
+- Screenshots are displayed as thumbnails in Discord messages
+- The delay before capturing screenshots can be configured via `SCREENSHOT_DELAY` (in milliseconds)
+
+### Requirements for Screenshots
+
+To use the screenshot feature, the Docker container must have:
+
+- VICE emulator installed
+- Xvfb (X virtual framebuffer) for headless operation
+- The `/tmp` directory shared as a volume
+
+The Dockerfile included in this project handles all these requirements automatically.
 
 ## Troubleshooting MinIO Connection
 
