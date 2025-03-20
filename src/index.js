@@ -2,11 +2,13 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
-const { Client, GatewayIntentBits, Events } = require('discord.js');
+const { Client, GatewayIntentBits, Events, Partials } = require('discord.js');
 const { handleDiscordMessage } = require('./discord-handler');
 const { setupFileServer } = require('./file-server');
 const { scheduleCleanup } = require('./file-cleanup');
 const { initializeBucket, testConnection } = require('./minio-service');
+const { initializeHandlers } = require('./handlers');
+const ReactionHandler = require('./handlers/reaction-handler');
 
 // Load environment variables with fallbacks
 const getEnv = (key, defaultValue = '') => process.env[key] || defaultValue;
@@ -17,6 +19,12 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMessageReactions, // Add reactions intent
+  ],
+  partials: [
+    Partials.Message,      // For reactions on uncached messages
+    Partials.Channel,      // For DM channels
+    Partials.Reaction,     // For reactions on uncached messages
   ]
 });
 
@@ -73,6 +81,9 @@ async function startApp() {
     scheduleCleanup();
     console.log('✅ File cleanup scheduled');
     
+    // Initialize handlers
+    initializeHandlers();
+    
     // Start the server
     const PORT = getEnv('PORT', '3000');
     app.listen(PORT, () => {
@@ -103,6 +114,16 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.MessageCreate, async (message) => {
   await handleDiscordMessage(message);
+});
+
+// Create a reaction handler instance
+const reactionHandler = new ReactionHandler();
+
+// Handle reaction add events
+client.on(Events.MessageReactionAdd, async (reaction, user) => {
+  if (reactionHandler.canHandleReaction(reaction, user)) {
+    await reactionHandler.handleReaction(reaction, user);
+  }
 });
 
 // Start the application

@@ -10,6 +10,7 @@ A Discord bot that allows users to upload Commodore 64 .prg files and generates 
 - Generates a direct URL to the online C64 emulator with the file pre-loaded
 - Responds with an inline clickable link in Discord
 - Automatic file cleanup to manage storage space
+- Modular architecture allowing easy addition of new bot actions and commands
 
 ## Setup
 
@@ -165,6 +166,34 @@ The bot includes automatic file management:
 - Only keeps the latest 100 files
 - Automatically deletes files older than 7 days
 - You can adjust these settings using the `MAX_FILES` and `MAX_AGE_DAYS` environment variables
+
+## Modular Architecture
+
+The bot uses a modular architecture based on handlers, making it easy to add new functionality without modifying existing code:
+
+### Key Components
+
+- `BaseHandler`: An abstract class that all handlers must extend
+- `HandlerRegistry`: A registry to manage all registered handlers
+- Multiple specialized handlers for different types of interactions
+
+### Included Handlers
+
+- `PrgFileHandler`: Processes .prg file attachments and generates emulator links
+- `HelpHandler`: Provides help information when requested
+- `PingHandler`: Simple ping-pong command for testing
+- `ReactionHandler`: Responds to emoji reactions on messages with .prg files
+
+### Creating Custom Handlers
+
+To add new functionality to the bot, you can create custom handlers:
+
+1. Create a new file in the `src/handlers` directory
+2. Extend the `BaseHandler` class
+3. Implement the required methods
+4. Register your handler in `src/handlers/index.js`
+
+See `src/handlers/README.md` for detailed documentation and examples.
 
 ## Troubleshooting MinIO Connection
 
