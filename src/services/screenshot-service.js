@@ -1,4 +1,4 @@
-const { exec } = require('child_process');
+const { exec, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -69,61 +69,88 @@ class ScreenshotService {
       // Build the Xvfb command with a unique display number
       const displayNum = Math.floor(Math.random() * 100) + 100;
       const display = `:${displayNum}`;
-      const xvfbCmd = `Xvfb ${display} -screen 0 1024x768x24`;
       
-      // Start Xvfb in the background
-      console.log(`Starting Xvfb on display ${display}`);
-      const xvfbProcess = require('child_process').spawn('Xvfb', [display, '-screen', '0', '1024x768x24'], {
-        detached: true,
-        stdio: 'ignore'
-      });
+      let xvfbPid = null;
       
-      // Give Xvfb time to start
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Create a timeout promise
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Screenshot generation timed out')), timeout);
-      });
-
       try {
+        // Start Xvfb properly - using a temporary script that runs in the background
+        console.log(`Starting Xvfb on display ${display}`);
+        const xvfbScriptPath = path.join(os.tmpdir(), `xvfb-start-${displayNum}.sh`);
+        
+        // Write a script to start Xvfb
+        fs.writeFileSync(xvfbScriptPath, `#!/bin/bash
+Xvfb ${display} -screen 0 1024x768x24 &
+XVFB_PID=$!
+echo $XVFB_PID
+sleep 5 # Keep running for a while
+`, { mode: 0o755 });
+        
+        // Execute the script and capture the PID
+        const result = execSync(`bash ${xvfbScriptPath}`).toString().trim();
+        xvfbPid = parseInt(result);
+        console.log(`Xvfb started with PID: ${xvfbPid}`);
+        
+        // Give Xvfb time to start
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Check if Xvfb is actually running
+        try {
+          execSync(`ps -p ${xvfbPid}`);
+          console.log(`Confirmed Xvfb is running with PID ${xvfbPid}`);
+        } catch (err) {
+          throw new Error(`Xvfb did not start properly: ${err.message}`);
+        }
+        
+        // Create a timeout promise
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Screenshot generation timed out')), timeout);
+        });
+
         // Build the x64 command (VICE emulator)
         console.log(`Capturing screenshot for ${basename} with delay ${delay}ms on display ${display}`);
         
+        // Use the correct order of parameters
+        const viceCmd = `DISPLAY=${display} x64 -silent -autoload "${prgFilePath}" -autostart-warp -autostartprgmode 1 -VICIIborders 0 -VICIIfilter 0 -exitscreenshot "${screenshotPath}"`;
+        console.log(`Running VICE command: ${viceCmd}`);
+        
         // Use Promise.race to implement timeout
         await Promise.race([
-          execPromise(`DISPLAY=${display} x64 -silent -autostart-warp -autostartprgmode 1 -VICIIborders 0 -VICIIfilter 0 -exitscreenshot "${screenshotPath}" -autoload "${prgFilePath}"`),
+          execPromise(viceCmd),
           timeoutPromise
         ]);
         
         // Wait for screenshot to be taken
         await new Promise(resolve => setTimeout(resolve, delay));
+        
+        // Check if screenshot exists
+        if (fs.existsSync(screenshotPath)) {
+          console.log(`Screenshot generated: ${screenshotPath}`);
+          return screenshotPath;
+        } else {
+          console.error('Screenshot file was not created');
+          if (useDefaultIfFailed) {
+            return await this.getDefaultScreenshot(outputDir);
+          }
+          throw new Error('Screenshot file was not created');
+        }
       } finally {
-        // Always try to kill Xvfb
+        // Always clean up
         try {
-          // Kill the Xvfb process
-          process.kill(-xvfbProcess.pid, 'SIGTERM');
+          // Kill Xvfb process if we have the PID
+          if (xvfbPid) {
+            console.log(`Killing Xvfb process with PID ${xvfbPid}`);
+            process.kill(xvfbPid);
+          }
         } catch (error) {
           console.error(`Error killing Xvfb process: ${error.message}`);
-          // Try a more direct approach
-          try {
-            await execPromise(`pkill -f "Xvfb ${display}"`);
-          } catch (pkillError) {
-            console.error(`Error using pkill: ${pkillError.message}`);
-          }
         }
-      }
-      
-      // Check if screenshot exists
-      if (fs.existsSync(screenshotPath)) {
-        console.log(`Screenshot generated: ${screenshotPath}`);
-        return screenshotPath;
-      } else {
-        console.error('Screenshot file was not created');
-        if (useDefaultIfFailed) {
-          return await this.getDefaultScreenshot(outputDir);
+        
+        // Additional cleanup with pkill as a fallback
+        try {
+          execSync(`pkill -f "Xvfb ${display}" || true`);
+        } catch (error) {
+          console.error(`Error using pkill: ${error.message}`);
         }
-        throw new Error('Screenshot file was not created');
       }
     } catch (error) {
       console.error('Error capturing screenshot:', error);
