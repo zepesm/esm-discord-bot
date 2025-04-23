@@ -50,7 +50,7 @@ class HelpHandler extends BaseHandler {
       fields: [
         {
           name: "Usage",
-          value: `Upload a .prg file - i'll take care of the rest.`
+          value: `Upload a .prg/.d64 file - i'll take care of the rest.`
         },
         {
           name: "Commands",

@@ -30,19 +30,19 @@ class PrgFileHandler extends BaseHandler {
     // Ignore messages from bots
     if (message.author.bot) return false;
 
-    // Check if there's an attachment
     if (message.attachments.size === 0) {
       // Only handle messages with the command prefix
       return message.content.toLowerCase().startsWith(COMMAND_PREFIX);
     }
 
-    // Check if any of the attachments are .prg files
-    const hasPrgFiles = message.attachments.some(attachment => 
-      attachment.name.toLowerCase().endsWith('.prg')
-    );
+    // Check if any of the attachments are .prg or .d64 files
+    const hasSupportedFiles = message.attachments.some(attachment => {
+      const lowerName = attachment.name.toLowerCase();
+      return lowerName.endsWith('.prg') || lowerName.endsWith('.d64');
+    });
 
-    // Handle if there are PRG files or if the command prefix was used
-    return hasPrgFiles || message.content.toLowerCase().startsWith(COMMAND_PREFIX);
+    // Handle if there are supported files or if the command prefix was used
+    return hasSupportedFiles || message.content.toLowerCase().startsWith(COMMAND_PREFIX);
   }
 
   /**
@@ -52,7 +52,7 @@ class PrgFileHandler extends BaseHandler {
   async handle(message) {
     // If no attachments but command prefix was used, show help
     if (message.attachments.size === 0) {
-      await message.reply("Please attach a .prg file to your message.");
+      await message.reply("Please attach a .prg or .d64 file to your message.");
       return;
     }
 
@@ -73,11 +73,14 @@ class PrgFileHandler extends BaseHandler {
   async processAttachment(attachment, message) {
     const { name, url } = attachment;
 
-    // Check if this is a .prg file
-    if (!name.toLowerCase().endsWith(".prg")) {
-      // Only notify about non-PRG files if the command prefix was used
+    // Check if this is a .prg or .d64 file
+    const lowerName = name.toLowerCase();
+    const isPrg = lowerName.endsWith(".prg");
+    const isD64 = lowerName.endsWith(".d64");
+    if (!isPrg && !isD64) {
+      // Only notify about non-supported files if the command prefix was used
       if (message.content.toLowerCase().startsWith(COMMAND_PREFIX)) {
-        await message.reply(`Skipping ${name} - only .prg files are supported.`);
+        await message.reply(`Skipping ${name} - only .prg or .d64 files are supported.`);
       }
       return;
     }
@@ -85,7 +88,8 @@ class PrgFileHandler extends BaseHandler {
     try {
       // Generate a unique filename to prevent overwrites
       const timestamp = Date.now();
-      const filename = `${path.basename(name, ".prg")}-${timestamp}.prg`;
+      const ext = isPrg ? ".prg" : ".d64";
+      const filename = `${path.basename(name, ext)}-${timestamp}${ext}`;
 
       // Create a temporary directory for file download
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "c64bot-"));
@@ -113,9 +117,7 @@ class PrgFileHandler extends BaseHandler {
             color: 0x5865F2, // Discord blue color
             thumbnail: {},
             fields: [],
-            footer: {
-              text: "ESM Rulez"
-            }
+            footer: {}
           }
         ],
         components: [
@@ -138,7 +140,7 @@ class PrgFileHandler extends BaseHandler {
       fs.unlinkSync(tempFilePath);
       fs.rmdirSync(tempDir);
 
-      console.log(`Processed .prg file: ${filename} and stored in MinIO`);
+      console.log(`Processed file: ${filename} and stored in MinIO`);
     } catch (error) {
       console.error(`Error processing attachment ${name}:`, error);
       await message.reply(
