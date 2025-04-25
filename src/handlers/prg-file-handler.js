@@ -107,14 +107,31 @@ class PrgFileHandler extends BaseHandler {
       // Create emulator URL with the JSON configuration
       const emulatorUrl = `https://vc64web.github.io/#${encodeURIComponent(JSON.stringify(emulatorConfig))}`;
 
+      // Get user's message content, removing the command prefix if present
+      let userText = message.content.trim();
+      if (userText.toLowerCase().startsWith(COMMAND_PREFIX)) {
+        userText = userText.substring(COMMAND_PREFIX.length).trim();
+      }
+
+      // Construct the description for the embed
+      const description = `${userText ? userText + '\n\n' : ''}`;
+
+      // Get author details
+      const authorName = message.member ? message.member.displayName : message.author.username;
+      const authorIconURL = message.author.displayAvatarURL();
+
       // Reply to the user with the emulator link using an embed
-      await message.reply({
+      const botReply = await message.reply({
         content: null, // No text content outside the embed
         embeds: [
           {
             title: `${name}`,
-            description: ``,
+            description: description, // Use the constructed description
             color: 0x5865F2, // Discord blue color
+            author: {
+              name: authorName,
+              icon_url: authorIconURL
+            },
             thumbnail: {},
             fields: [],
             footer: {}
@@ -129,6 +146,12 @@ class PrgFileHandler extends BaseHandler {
                 style: 5, // Link button
                 label: "Emulate!",
                 url: emulatorUrl
+              },
+              {
+                type: 2, // Button
+                style: 5, // Link button
+                label: "Download",
+                url: fileUrl // Use the MinIO file URL
               }
             ]
           }
@@ -141,6 +164,15 @@ class PrgFileHandler extends BaseHandler {
       fs.rmdirSync(tempDir);
 
       console.log(`Processed file: ${filename} and stored in MinIO`);
+
+      // Delete the original message after successful processing and reply
+      try {
+        await message.delete();
+        console.log(`Deleted original message ID: ${message.id}`);
+      } catch (deleteError) {
+        console.error(`Failed to delete original message ID ${message.id}:`, deleteError);
+        // Optionally notify the channel or admin if deletion fails frequently
+      }
     } catch (error) {
       console.error(`Error processing attachment ${name}:`, error);
       await message.reply(
