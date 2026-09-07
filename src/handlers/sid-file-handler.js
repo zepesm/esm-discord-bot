@@ -229,6 +229,15 @@ class SidFileHandler extends BaseHandler {
         return;
       } catch (error) {
         console.error(`Failed to update the status message: ${error.message}`);
+
+        // The fallback below posts the result as a new message, so the loading
+        // line has to go with it - otherwise it is stranded above the result
+        // and reads like a second, broken reply
+        try {
+          await status.delete();
+        } catch (deleteError) {
+          console.error(`Failed to clear the stale status message: ${deleteError.message}`);
+        }
       }
     }
 

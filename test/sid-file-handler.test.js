@@ -257,7 +257,35 @@ test('SidFileHandler status message lifecycle', async (t) => {
   });
 
   await t.test('falls back to a reply when the edit fails', async () => {
-    const status = { async edit() { throw new Error('unknown message'); } };
+    const status = { async edit() { throw new Error('unknown message'); }, async delete() {} };
+    const message = msg({ files: ['tune.sid'] });
+
+    await handler.finish(status, message, { content: 'done' });
+
+    assert.equal(message.replies.length, 1);
+  });
+
+  await t.test('clears the loading line when it falls back, leaving one message', async () => {
+    // Otherwise the loading line is stranded above the result and reads like a
+    // second, broken reply
+    let deleted = false;
+    const status = {
+      async edit() { throw new Error('Missing Permissions'); },
+      async delete() { deleted = true; },
+    };
+    const message = msg({ files: ['tune.sid'] });
+
+    await handler.finish(status, message, { embeds: [{ title: 'tune.sid' }] });
+
+    assert.equal(deleted, true);
+    assert.equal(message.replies.length, 1);
+  });
+
+  await t.test('still posts the result when the stale message cannot be removed', async () => {
+    const status = {
+      async edit() { throw new Error('Missing Permissions'); },
+      async delete() { throw new Error('Unknown Message'); },
+    };
     const message = msg({ files: ['tune.sid'] });
 
     await handler.finish(status, message, { content: 'done' });
