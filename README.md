@@ -43,6 +43,7 @@ System environment variables take precedence over those defined in the `.env` fi
 | -------------------- | ---------------------------------------- | ------------------------- |
 | `DISCORD_TOKEN`      | Discord bot token                        | _(required)_              |
 | `COMMAND_PREFIX`     | Command prefix for the bot               | `c64`                     |
+| `ALLOW_BOT_UPLOADS`  | Process files posted by other bots       | `true`                    |
 | `PORT`               | HTTP server port                         | `3000`                    |
 | `PUBLIC_HOST`        | Public URL of your server                | `http://localhost:<PORT>` |
 | `MINIO_ENDPOINT`     | MinIO server hostname                    | `minio`                   |
@@ -150,6 +151,9 @@ There are two ways to use the bot:
 
    - Simply upload a `.prg` file to any channel where the bot is present
    - The bot will automatically process the file and reply with an emulator link
+   - This also works for files posted by other bots, apps and webhooks, such as CI
+     build reports. Those messages are never deleted - the bot only adds its reply
+     underneath. Set `ALLOW_BOT_UPLOADS=false` to turn this off.
 
 2. **Manual Mode**:
    - Type `c64` in a Discord channel followed by your message

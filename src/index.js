@@ -43,6 +43,37 @@ console.log('- DISCORD_TOKEN: ' + (getEnv('DISCORD_TOKEN') ? '✓ Set' : '✗ Mi
 console.log('- MINIO_ACCESS_KEY: ' + (getEnv('MINIO_ACCESS_KEY') ? '✓ Set' : '✗ Missing'));
 console.log('- MINIO_SECRET_KEY: ' + (getEnv('MINIO_SECRET_KEY') ? '✓ Set' : '✗ Missing'));
 
+/**
+ * Start the express file server and report bind failures without taking the
+ * Discord bot down with them
+ */
+function startFileServer() {
+  const PORT = getEnv('PORT', '3000');
+  const server = app.listen(PORT);
+
+  server.on('listening', () => {
+    console.log(`\n✅ Server running on port ${PORT}`);
+    console.log(`✅ File server accessible at ${getEnv('PUBLIC_HOST', `http://localhost:${PORT}`)}`);
+  });
+
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(`\n⚠️  Port ${PORT} is already in use - file server not started.`);
+    } else if (error.code === 'EACCES') {
+      console.error(`\n⚠️  Permission denied for port ${PORT} - file server not started.`);
+      if (process.platform === 'win32') {
+        console.error('   On Windows this usually means the port sits in a reserved range.');
+        console.error('   Check with: netsh interface ipv4 show excludedportrange protocol=tcp');
+      }
+    } else {
+      console.error(`\n⚠️  File server error on port ${PORT}:`, error);
+    }
+    console.error(`   Set PORT to a free port to enable it. The Discord bot keeps running.`);
+  });
+
+  return server;
+}
+
 // Start the application
 async function startApp() {
   try {
@@ -84,22 +115,19 @@ async function startApp() {
     // Initialize handlers
     initializeHandlers();
     
-    // Start the server
-    const PORT = getEnv('PORT', '3000');
-    app.listen(PORT, () => {
-      console.log(`\n✅ Server running on port ${PORT}`);
-      console.log(`✅ File server accessible at ${getEnv('PUBLIC_HOST', `http://localhost:${PORT}`)}`);
-      
-      // Get Discord token
-      const discordToken = getEnv('DISCORD_TOKEN');
-      
-      // Attempt to login with Discord token
-      client.login(discordToken)
-        .catch(error => {
-          console.error('\n❌ Failed to log in to Discord:', error);
-          process.exit(1);
-        });
-    });
+    // Connect to Discord before starting the HTTP server - the bot is the
+    // primary function, the file browser is auxiliary
+    try {
+      await client.login(getEnv('DISCORD_TOKEN'));
+    } catch (error) {
+      console.error('\n❌ Failed to log in to Discord:', error);
+      process.exit(1);
+    }
+
+    // Start the file server. Emulator and download links point straight at
+    // MinIO (see getFileUrl in minio-service), so a failure here only costs
+    // the file browsing UI - the bot keeps running.
+    startFileServer();
   } catch (error) {
     console.error('\n❌ Error starting application:', error);
     console.error('Please check your MinIO configuration in .env file or system environment variables.');

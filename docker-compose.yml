@@ -7,6 +7,7 @@ services:
       # Discord configuration
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - COMMAND_PREFIX=${COMMAND_PREFIX:-c64}
+      - ALLOW_BOT_UPLOADS=${ALLOW_BOT_UPLOADS:-true}
 
       # Server configuration
       - PORT=${PORT:-3000}

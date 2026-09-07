@@ -12,6 +12,9 @@ const getEnv = (key, defaultValue = "") => process.env[key] || defaultValue;
 // Command prefix for bot
 const COMMAND_PREFIX = getEnv("COMMAND_PREFIX", "c64");
 
+// Whether files posted by other bots / webhooks (e.g. CI build reports) are processed
+const ALLOW_BOT_UPLOADS = getEnv("ALLOW_BOT_UPLOADS", "true") !== "false";
+
 /**
  * Handler for PRG file attachments
  */
@@ -22,27 +25,52 @@ class PrgFileHandler extends BaseHandler {
   }
 
   /**
+   * Check whether the message was posted by a bot, an application or a webhook
+   * @param {Object} message - Discord message
+   * @returns {Boolean} True if the message did not come from a human
+   */
+  isFromBot(message) {
+    return Boolean(message.author?.bot || message.webhookId);
+  }
+
+  /**
+   * Check whether the message carries at least one .prg or .d64 attachment
+   * @param {Object} message - Discord message
+   * @returns {Boolean} True if a supported file is attached
+   */
+  hasSupportedFiles(message) {
+    return message.attachments.some(attachment => {
+      const lowerName = (attachment.name || '').toLowerCase();
+      return lowerName.endsWith('.prg') || lowerName.endsWith('.d64');
+    });
+  }
+
+  /**
    * Check if this message has PRG attachments or uses the command prefix
    * @param {Object} message - Discord message
    * @returns {Boolean} True if this handler should process the message
    */
   canHandle(message) {
-    // Ignore messages from bots
-    if (message.author.bot) return false;
+    // Never react to our own messages - guards against self-triggering loops
+    if (message.author?.id && message.author.id === message.client?.user?.id) {
+      return false;
+    }
+
+    // Other bots and webhooks (CI build reports) only trigger through
+    // attachments - they never issue prefix commands
+    if (this.isFromBot(message)) {
+      return ALLOW_BOT_UPLOADS && this.hasSupportedFiles(message);
+    }
+
+    const usedPrefix = message.content.toLowerCase().startsWith(COMMAND_PREFIX);
 
     if (message.attachments.size === 0) {
       // Only handle messages with the command prefix
-      return message.content.toLowerCase().startsWith(COMMAND_PREFIX);
+      return usedPrefix;
     }
 
-    // Check if any of the attachments are .prg or .d64 files
-    const hasSupportedFiles = message.attachments.some(attachment => {
-      const lowerName = attachment.name.toLowerCase();
-      return lowerName.endsWith('.prg') || lowerName.endsWith('.d64');
-    });
-
     // Handle if there are supported files or if the command prefix was used
-    return hasSupportedFiles || message.content.toLowerCase().startsWith(COMMAND_PREFIX);
+    return this.hasSupportedFiles(message) || usedPrefix;
   }
 
   /**
@@ -57,18 +85,37 @@ class PrgFileHandler extends BaseHandler {
     }
 
     // Process each attachment
-    const attachmentPromises = message.attachments.map((attachment) =>
-      this.processAttachment(attachment, message)
+    const results = await Promise.allSettled(
+      message.attachments.map((attachment) =>
+        this.processAttachment(attachment, message)
+      )
     );
 
-    // Wait for all attachments to be processed
-    await Promise.allSettled(attachmentPromises);
+    // Never clean up messages we do not own - a CI build report has to stay
+    // in the channel with its author, commit message and embeds intact
+    if (this.isFromBot(message)) return;
+
+    // Only delete the original once every attachment produced a link, so a
+    // failed upload never silently swallows the user's file
+    const allProcessed = results.every(
+      (result) => result.status === "fulfilled" && result.value === true
+    );
+    if (!allProcessed) return;
+
+    try {
+      await message.delete();
+      console.log(`Deleted original message ID: ${message.id}`);
+    } catch (deleteError) {
+      console.error(`Failed to delete original message ID ${message.id}:`, deleteError);
+      // Optionally notify the channel or admin if deletion fails frequently
+    }
   }
 
   /**
    * Process a single attachment
    * @param {Object} attachment - Discord attachment object
    * @param {Object} message - Discord message object
+   * @returns {Promise<Boolean>} True if the attachment produced an emulator link
    */
   async processAttachment(attachment, message) {
     const { name, url } = attachment;
@@ -79,10 +126,10 @@ class PrgFileHandler extends BaseHandler {
     const isD64 = lowerName.endsWith(".d64");
     if (!isPrg && !isD64) {
       // Only notify about non-supported files if the command prefix was used
-      if (message.content.toLowerCase().startsWith(COMMAND_PREFIX)) {
+      if (!this.isFromBot(message) && message.content.toLowerCase().startsWith(COMMAND_PREFIX)) {
         await message.reply(`Skipping ${name} - only .prg or .d64 files are supported.`);
       }
-      return;
+      return false;
     }
 
     try {
@@ -121,7 +168,7 @@ class PrgFileHandler extends BaseHandler {
       const authorIconURL = message.author.displayAvatarURL();
 
       // Reply to the user with the emulator link using an embed
-      const botReply = await message.reply({
+      await message.reply({
         content: null, // No text content outside the embed
         embeds: [
           {
@@ -164,20 +211,13 @@ class PrgFileHandler extends BaseHandler {
       fs.rmdirSync(tempDir);
 
       console.log(`Processed file: ${filename} and stored in MinIO`);
-
-      // Delete the original message after successful processing and reply
-      try {
-        await message.delete();
-        console.log(`Deleted original message ID: ${message.id}`);
-      } catch (deleteError) {
-        console.error(`Failed to delete original message ID ${message.id}:`, deleteError);
-        // Optionally notify the channel or admin if deletion fails frequently
-      }
+      return true;
     } catch (error) {
       console.error(`Error processing attachment ${name}:`, error);
       await message.reply(
         `Sorry, I couldn't process your file. Error: ${error.message}`
       );
+      return false;
     }
   }
 
