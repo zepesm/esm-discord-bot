@@ -1,7 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { Collection } = require('discord.js');
-const PrgFileHandler = require('../src/handlers/prg-file-handler');
 
 const SELF_ID = 'our-bot-id';
 
@@ -36,7 +35,8 @@ function msg({
 
 /**
  * Re-require the handler with a given ALLOW_BOT_UPLOADS value, since the flag
- * is read once at module load
+ * is read once at module load. Every suite goes through this so an exported
+ * ALLOW_BOT_UPLOADS in the ambient environment cannot flip the expectations.
  */
 function handlerWithFlag(value) {
   const modulePath = require.resolve('../src/handlers/prg-file-handler');
@@ -56,7 +56,7 @@ function handlerWithFlag(value) {
 }
 
 test('canHandle', async (t) => {
-  const handler = new PrgFileHandler();
+  const handler = handlerWithFlag(undefined);
 
   await t.test('picks up a .d64 posted by a human', () => {
     assert.equal(handler.canHandle(msg({ files: ['Pumpkins_side1.d64'] })), true);
@@ -118,7 +118,7 @@ test('ALLOW_BOT_UPLOADS', async (t) => {
 });
 
 test('deletion policy', async (t) => {
-  const handler = new PrgFileHandler();
+  const handler = handlerWithFlag(undefined);
 
   await t.test('deletes a human message once every attachment succeeded', async () => {
     handler.processAttachment = async () => true;
