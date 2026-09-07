@@ -21,6 +21,9 @@ const { applyFadeOut, deinterleave, peakAmplitude } = require('./sid-dsp.js');
 // MPEG frame size the encoder expects per call
 const MP3_BLOCK_SAMPLES = 1152;
 
+// Smallest progress advance worth telling the parent about
+const PROGRESS_STEP = 0.05;
+
 // Below this peak the render is silence for our purposes, which is what a tune
 // that needs the real C64 ROMs produces
 const SILENCE_PEAK_THRESHOLD = 64;
@@ -98,7 +101,18 @@ async function render() {
     const sampleRate = engine.getSampleRate();
     const channels = engine.getChannels();
 
-    const pcm = await engine.renderSeconds(seconds);
+    // Report progress in coarse steps. The callback fires once per emulated
+    // chunk, which is far too often to forward to Discord.
+    const expectedSamples = seconds * sampleRate * channels;
+    let lastReported = 0;
+    const onProgress = (samplesWritten) => {
+      const fraction = Math.min(samplesWritten / expectedSamples, 1);
+      if (fraction - lastReported < PROGRESS_STEP) return;
+      lastReported = fraction;
+      parentPort.postMessage({ type: 'progress', phase: 'render', fraction });
+    };
+
+    const pcm = await engine.renderSeconds(seconds, undefined, onProgress);
 
     if (!pcm.length || peakAmplitude(pcm) < SILENCE_PEAK_THRESHOLD) {
       return { silent: true, warnings };
@@ -110,6 +124,10 @@ async function render() {
     if (renderedSeconds < seconds) warnings.push('truncated');
 
     applyFadeOut(pcm, { channels, sampleRate, fadeSeconds });
+
+    // Encoding is the slower half and has no callback of its own, so the
+    // parent is told the phase changed rather than being left at 100%
+    parentPort.postMessage({ type: 'progress', phase: 'encode', fraction: 1 });
     const mp3 = encodeMp3(pcm, { channels, sampleRate, bitrate });
 
     return {
@@ -139,9 +157,12 @@ render().then(
     // into Node's shared pool for small results, and transferring that would
     // detach memory belonging to unrelated buffers. A structured clone of a few
     // megabytes is nothing next to a multi-second render.
-    parentPort.postMessage({ ok: true, result });
+    parentPort.postMessage({ type: 'done', result });
   },
   (error) => {
-    parentPort.postMessage({ ok: false, message: error && error.message ? error.message : String(error) });
+    parentPort.postMessage({
+      type: 'error',
+      message: error && error.message ? error.message : String(error),
+    });
   }
 );

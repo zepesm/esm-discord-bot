@@ -72,7 +72,7 @@ function enqueue(task) {
  * @param {Object} payload - Worker input
  * @returns {Promise<Object>} Worker result
  */
-function runWorker(payload) {
+function runWorker(payload, onProgress) {
   return new Promise((resolve, reject) => {
     const worker = new Worker(WORKER_PATH, { workerData: payload });
     let settled = false;
@@ -93,7 +93,19 @@ function runWorker(payload) {
     }, RENDER_TIMEOUT_MS);
 
     worker.on('message', (message) => {
-      if (message.ok) finish(resolve, message.result);
+      if (message.type === 'progress') {
+        // A reporting failure must never take a render down with it
+        if (onProgress) {
+          try {
+            onProgress(message);
+          } catch (error) {
+            console.error('SID progress callback failed:', error);
+          }
+        }
+        return;
+      }
+
+      if (message.type === 'done') finish(resolve, message.result);
       else finish(reject, new SidRenderError(message.message));
     });
 
@@ -150,7 +162,7 @@ async function renderSid(buffer, options = {}) {
       bitrate: options.bitrate || MP3_BITRATE,
       engine: options.engine || SID_ENGINE,
       roms: ROM_PATHS,
-    }));
+    }, options.onProgress));
   } finally {
     queueDepth--;
   }

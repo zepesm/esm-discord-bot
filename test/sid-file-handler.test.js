@@ -173,6 +173,99 @@ test('SidFileHandler deletion policy', async (t) => {
   });
 });
 
+/**
+ * Stand-in for the status message the handler posts and then keeps editing
+ */
+function statusStub() {
+  return {
+    edits: [],
+    async edit(payload) { this.edits.push(payload); return this; },
+  };
+}
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test('SidFileHandler progress reporting', async (t) => {
+  const handler = handlerWithEnv(cleanEnv);
+
+  await t.test('does nothing when the status message never posted', () => {
+    assert.equal(handler.progressReporter(null, 'LOAD', 'tune.sid'), undefined);
+  });
+
+  await t.test('draws a progress bar into the status message', async () => {
+    const status = statusStub();
+    handler.progressReporter(status, 'LOAD "$",8,1', 'tune.sid')({ phase: 'render', fraction: 0.5 });
+    await tick();
+
+    assert.equal(status.edits.length, 1);
+    assert.match(status.edits[0].content, /LOAD "\$",8,1/);
+    assert.match(status.edits[0].content, /tune\.sid/);
+    assert.match(status.edits[0].content, /50%/);
+  });
+
+  await t.test('throttles rapid updates instead of hammering the API', async () => {
+    const status = statusStub();
+    const report = handler.progressReporter(status, 'LOAD', 'tune.sid');
+
+    report({ phase: 'render', fraction: 0.1 });
+    await tick();
+    for (const fraction of [0.2, 0.3, 0.4, 0.5]) report({ phase: 'render', fraction });
+    await tick();
+
+    assert.equal(status.edits.length, 1);
+  });
+
+  await t.test('says something different once encoding starts', async () => {
+    const status = statusStub();
+    handler.progressReporter(status, 'LOAD', 'tune.sid')({ phase: 'encode', fraction: 1 });
+    await tick();
+
+    assert.match(status.edits[0].content, /tape/i);
+    assert.doesNotMatch(status.edits[0].content, /100%/);
+  });
+
+  await t.test('survives an edit that fails', async () => {
+    const status = { async edit() { throw new Error('unknown message'); } };
+    handler.progressReporter(status, 'LOAD', 'tune.sid')({ phase: 'render', fraction: 0.5 });
+    await tick();
+    // Reaching here without an unhandled rejection is the assertion
+    assert.ok(true);
+  });
+});
+
+test('SidFileHandler status message lifecycle', async (t) => {
+  const handler = handlerWithEnv(cleanEnv);
+
+  await t.test('replaces the loading line rather than posting again', async () => {
+    const status = statusStub();
+    const message = msg({ files: ['tune.sid'] });
+
+    await handler.finish(status, message, { embeds: [{ title: 'tune.sid' }] });
+
+    assert.equal(status.edits.length, 1);
+    assert.equal(message.replies.length, 0);
+    // Without this the loading line would sit above the finished player
+    assert.equal(status.edits[0].content, null);
+  });
+
+  await t.test('falls back to a fresh reply when there is no status message', async () => {
+    const message = msg({ files: ['tune.sid'] });
+    await handler.finish(null, message, { content: 'done' });
+
+    assert.equal(message.replies.length, 1);
+    assert.equal(message.replies[0].content, 'done');
+  });
+
+  await t.test('falls back to a reply when the edit fails', async () => {
+    const status = { async edit() { throw new Error('unknown message'); } };
+    const message = msg({ files: ['tune.sid'] });
+
+    await handler.finish(status, message, { content: 'done' });
+
+    assert.equal(message.replies.length, 1);
+  });
+});
+
 test('SidFileHandler per-message cap', async (t) => {
   await t.test('renders only the first few tunes and says so', async () => {
     const handler = handlerWithEnv({ ...cleanEnv, SID_MAX_FILES_PER_MESSAGE: '2' });
@@ -184,7 +277,7 @@ test('SidFileHandler per-message cap', async (t) => {
 
     assert.deepEqual(seen, ['a.sid', 'b.sid']);
     assert.equal(message.replies.length, 1);
-    assert.match(message.replies[0].content, /2 more were skipped/);
+    assert.match(message.replies[0].content, /left 2 on the flip side/);
     // A capped message is not fully handled, so it must survive
     assert.equal(message.deleted, false);
   });

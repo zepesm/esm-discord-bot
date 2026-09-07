@@ -8,6 +8,11 @@ const minioService = require("../minio-service");
 const BaseHandler = require("./base-handler");
 const { AUDIO_EXTENSIONS, hasExtension } = require("../file-types");
 const sidService = require("../sid-service");
+const flavour = require("../sid-flavour");
+
+// Discord rate limits message edits, and a render only lasts seconds, so the
+// progress bar is deliberately coarse
+const PROGRESS_EDIT_INTERVAL_MS = 2500;
 
 // Helper function to get environment variables with fallbacks
 const getEnv = (key, defaultValue = "") => process.env[key] || defaultValue;
@@ -96,7 +101,8 @@ class SidFileHandler extends BaseHandler {
 
     if (skipped > 0) {
       await this.safeReply(message, {
-        content: `Only rendered the first ${accepted.length} tunes - ${skipped} more were skipped.`,
+        content: `That's a whole disk side worth of tunes. Played the first ${accepted.length}, ` +
+          `left ${skipped} on the flip side.`,
       });
     }
 
@@ -127,6 +133,13 @@ class SidFileHandler extends BaseHandler {
     const { name, url } = attachment;
     let tempDir = null;
 
+    // One line per tune, held for the whole job so the same message goes from
+    // "loading" through the progress bar to the finished player
+    const loadingLine = flavour.loadingLine();
+    const status = await this.safeReply(message, {
+      content: `${loadingLine}\n_${name}_`,
+    });
+
     try {
       const timestamp = Date.now();
       const ext = path.extname(name);
@@ -142,21 +155,23 @@ class SidFileHandler extends BaseHandler {
       // render is what fails
       const fileUrl = await minioService.uploadFile(tempFilePath, filename);
 
-      const rendered = await sidService.renderSid(sidBuffer);
+      const rendered = await sidService.renderSid(sidBuffer, {
+        onProgress: this.progressReporter(status, loadingLine, name),
+      });
 
       if (rendered.silent) {
-        await this.replySilent(message, name, rendered.header, fileUrl);
+        await this.finish(status, message, this.buildSilentPayload(message, name, rendered.header, fileUrl));
         console.log(`Rendered nothing for ${filename} - the tune produced silence`);
         return false;
       }
 
-      await this.replyWithTune(message, name, rendered, fileUrl);
+      await this.finish(status, message, this.buildTunePayload(message, name, rendered, fileUrl));
       console.log(`Rendered ${filename} to ${rendered.mp3.length} bytes of MP3`);
       return true;
     } catch (error) {
       console.error(`Error processing SID ${name}:`, error);
-      await this.safeReply(message, {
-        content: `Sorry, I couldn't handle ${name}. ${error.message}`,
+      await this.finish(status, message, {
+        content: `${flavour.failureLine()}\n_${name}_ - ${error.message}`,
       });
       return false;
     } finally {
@@ -164,6 +179,60 @@ class SidFileHandler extends BaseHandler {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
     }
+  }
+
+  /**
+   * Build a throttled progress callback that keeps one message up to date
+   * @param {Object} status - The placeholder message, or null if it failed to post
+   * @param {String} loadingLine - The line chosen for this tune
+   * @param {String} name - Original attachment name
+   * @returns {Function} Callback for the SID service
+   */
+  progressReporter(status, loadingLine, name) {
+    if (!status) return undefined;
+
+    let lastEdit = 0;
+    let inFlight = false;
+
+    return ({ phase, fraction }) => {
+      const now = Date.now();
+      // Skip an update rather than queue it - the next one carries newer data
+      if (inFlight || now - lastEdit < PROGRESS_EDIT_INTERVAL_MS) return;
+      lastEdit = now;
+      inFlight = true;
+
+      const detail = phase === 'encode'
+        ? 'Squeezing it onto tape...'
+        : flavour.progressBar(fraction);
+
+      status
+        .edit({ content: `${loadingLine}\n_${name}_\n${detail}` })
+        .catch(() => {})
+        .finally(() => { inFlight = false; });
+    };
+  }
+
+  /**
+   * Replace the placeholder with the finished result, falling back to a fresh
+   * reply if the placeholder never made it out
+   * @param {Object} status - The placeholder message, or null
+   * @param {Object} message - Original Discord message
+   * @param {Object} payload - Final message payload
+   */
+  async finish(status, message, payload) {
+    // Clearing content is explicit, otherwise the loading line would linger
+    const finalPayload = { content: null, ...payload };
+
+    if (status) {
+      try {
+        await status.edit(finalPayload);
+        return;
+      } catch (error) {
+        console.error(`Failed to update the status message: ${error.message}`);
+      }
+    }
+
+    await this.safeReply(message, finalPayload);
   }
 
   /**
@@ -205,13 +274,30 @@ class SidFileHandler extends BaseHandler {
   }
 
   /**
-   * Reply with the rendered tune attached
+   * One download button, shared by both outcomes
+   * @param {String} fileUrl - Public URL of the stored .sid
+   * @returns {Array} Discord component rows
+   */
+  downloadRow(fileUrl) {
+    return [
+      {
+        type: 1,
+        components: [
+          { type: 2, style: 5, label: "Download .sid", url: fileUrl },
+        ],
+      },
+    ];
+  }
+
+  /**
+   * Message payload for a tune that rendered
    * @param {Object} message - Discord message
    * @param {String} name - Original attachment name
    * @param {Object} rendered - Result from the SID service
    * @param {String} fileUrl - Public URL of the stored .sid
+   * @returns {Object} Payload for reply or edit
    */
-  async replyWithTune(message, name, rendered, fileUrl) {
+  buildTunePayload(message, name, rendered, fileUrl) {
     const { header, mp3, meta } = rendered;
 
     // Discord decides to show the audio player from the .mp3 extension
@@ -222,56 +308,41 @@ class SidFileHandler extends BaseHandler {
     });
 
     const embed = this.buildEmbed(message, name, header);
-    embed.footer = { text: `${meta.format} · ${meta.clock} · ${meta.sidChips}× SID · ${meta.engine}` };
+    const chips = meta.sidChips > 1 ? `${meta.sidChips}× SID` : "SID";
+    embed.footer = { text: `${header.magic} · ${meta.clock} · ${chips} · ${meta.renderedSeconds}s` };
 
-    await this.safeReply(message, {
-      embeds: [embed],
-      files: [audio],
-      components: [
-        {
-          type: 1,
-          components: [
-            { type: 2, style: 5, label: "Download .sid", url: fileUrl },
-          ],
-        },
-      ],
-    });
+    return { embeds: [embed], files: [audio], components: this.downloadRow(fileUrl) };
   }
 
   /**
-   * Reply when the tune rendered as silence
+   * Message payload for a tune that produced no sound
    * @param {Object} message - Discord message
    * @param {String} name - Original attachment name
    * @param {Object} header - Parsed SID header
    * @param {String} fileUrl - Public URL of the stored .sid
+   * @returns {Object} Payload for reply or edit
    */
-  async replySilent(message, name, header, fileUrl) {
+  buildSilentPayload(message, name, header, fileUrl) {
     const reason = header.likelyNeedsRoms
-      ? "It needs the original Commodore KERNAL/BASIC ROMs, which this bot doesn't ship."
-      : "The tune produced no audio.";
+      ? "This one wants the real KERNAL and BASIC ROMs, and we don't keep those around."
+      : "The tune loaded fine but never made a sound.";
 
-    await this.safeReply(message, {
-      content: `🔇 **${name}** rendered as silence. ${reason} The file is stored - grab it below and play it locally.`,
+    return {
+      content: `${flavour.silenceLine()} ${reason} Grab the file below and give it a spin at home.`,
       embeds: [this.buildEmbed(message, name, header)],
-      components: [
-        {
-          type: 1,
-          components: [
-            { type: 2, style: 5, label: "Download .sid", url: fileUrl },
-          ],
-        },
-      ],
-    });
+      components: this.downloadRow(fileUrl),
+    };
   }
 
   /**
    * Reply without failing when the user deleted their message mid-render
    * @param {Object} message - Discord message
    * @param {Object} payload - Reply payload
+   * @returns {Promise<Object|null>} The sent message, or null when it failed
    */
   async safeReply(message, payload) {
     try {
-      await message.reply({
+      return await message.reply({
         allowedMentions: { repliedUser: false },
         // A render takes seconds, so the original going away is a real case
         failIfNotExists: false,
@@ -279,6 +350,7 @@ class SidFileHandler extends BaseHandler {
       });
     } catch (error) {
       console.error(`Failed to reply in channel ${message.channelId}:`, error);
+      return null;
     }
   }
 
