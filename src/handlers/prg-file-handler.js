@@ -12,8 +12,14 @@ const getEnv = (key, defaultValue = "") => process.env[key] || defaultValue;
 // Command prefix for bot
 const COMMAND_PREFIX = getEnv("COMMAND_PREFIX", "c64");
 
+// Values that switch a default-on flag off, so operators are not surprised by
+// ALLOW_BOT_UPLOADS=0 quietly leaving the feature enabled
+const DISABLED_VALUES = new Set(["false", "0", "no", "off"]);
+
 // Whether files posted by other bots / webhooks (e.g. CI build reports) are processed
-const ALLOW_BOT_UPLOADS = getEnv("ALLOW_BOT_UPLOADS", "true") !== "false";
+const ALLOW_BOT_UPLOADS = !DISABLED_VALUES.has(
+  getEnv("ALLOW_BOT_UPLOADS", "true").trim().toLowerCase()
+);
 
 /**
  * Handler for PRG file attachments
