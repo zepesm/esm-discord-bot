@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const minioService = require('./minio-service');
+const { stripTimestamp } = require('./file-types');
 
 // Helper function to get environment variables with fallbacks
 const getEnv = (key, defaultValue = '') => process.env[key] || defaultValue;
@@ -115,7 +116,7 @@ async function setupFileServer(app) {
           </header>
           
           <div class="description">
-            <p>This server hosts Commodore 64 program files (.prg) uploaded via the Discord Bot. 
+            <p>This server hosts Commodore 64 programs (.prg, .d64) and music (.sid) uploaded via the Discord Bot.
             Files are automatically removed after ${getEnv('MAX_AGE_DAYS', '7')} days.</p>
           </div>
           
@@ -124,11 +125,14 @@ async function setupFileServer(app) {
           <div class="files-grid">
             ${files.map(file => {
               // Extract the original filename without timestamp
-              const nameMatch = file.filename.match(/(.+)-\d+\.prg$/i);
-              const displayName = nameMatch ? nameMatch[1] : file.filename;
+              const displayName = stripTimestamp(file.filename);
               // Format date
               const dateStr = file.lastModified.toLocaleString();
-              
+              // Music files have no playUrl - there is nothing for the emulator to boot
+              const playButton = file.playUrl
+                ? `<a href="${file.playUrl}" class="btn btn-primary" target="_blank">Play in Emulator</a>`
+                : '';
+
               return `
                 <div class="file-card">
                   <div class="file-name">${displayName}</div>
@@ -136,7 +140,7 @@ async function setupFileServer(app) {
                     Uploaded: ${dateStr}
                   </div>
                   <div class="buttons">
-                    <a href="${file.playUrl}" class="btn btn-primary" target="_blank">Play in Emulator</a>
+                    ${playButton}
                     <a href="${file.url}" class="btn btn-secondary" target="_blank">Download</a>
                   </div>
                 </div>

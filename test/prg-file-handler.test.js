@@ -28,8 +28,9 @@ function msg({
     author: { id: authorId, bot, username: 'someone', displayAvatarURL: () => '' },
     client: { user: { id: SELF_ID } },
     deleted: false,
+    replies: [],
     async delete() { this.deleted = true; },
-    async reply() { return {}; },
+    async reply(payload) { this.replies.push(payload); return {}; },
   };
 }
 
@@ -115,6 +116,39 @@ test('ALLOW_BOT_UPLOADS', async (t) => {
       assert.equal(handlerWithFlag(value).canHandle(botUpload()), false);
     });
   }
+});
+
+test('coexistence with SidFileHandler', async (t) => {
+  const handler = handlerWithFlag(undefined);
+
+  await t.test('says nothing about a .sid, which another handler owns', async () => {
+    // The registry runs every matching handler, so a rejection from here would
+    // land next to SidFileHandler's real answer for the same file
+    const message = msg({ content: 'c64 listen to this', files: ['tune.sid'] });
+    await handler.handle(message);
+
+    assert.equal(message.replies.length, 0);
+    assert.equal(message.deleted, false);
+  });
+
+  await t.test('still rejects a genuinely unsupported file', async () => {
+    const message = msg({ content: 'c64 look', files: ['notes.txt'] });
+    await handler.handle(message);
+
+    assert.equal(message.replies.length, 1);
+    assert.match(String(message.replies[0]), /Skipping notes\.txt/);
+  });
+
+  await t.test('never deletes a message that also carries a .sid', async () => {
+    // PrgFileHandler runs first, so deleting here would break the SID reply
+    handler.processAttachment = async (attachment) =>
+      attachment.name.toLowerCase().endsWith('.prg');
+    const message = msg({ content: 'c64', files: ['demo.prg', 'tune.sid'] });
+    await handler.handle(message);
+
+    assert.equal(message.deleted, false);
+    delete handler.processAttachment;
+  });
 });
 
 test('deletion policy', async (t) => {

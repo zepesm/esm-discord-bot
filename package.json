@@ -1,7 +1,7 @@
 {
   "name": "c64-discord-bot",
   "version": "1.0.0",
-  "description": "Discord bot for handling Commodore 64 .prg files",
+  "description": "Discord bot for handling Commodore 64 .prg, .d64 and .sid files",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
@@ -12,9 +12,11 @@
     "verify-token": "node verify-token.js"
   },
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
     "discord.js": "^14.27.0",
     "dotenv": "^16.6.1",
     "express": "^4.22.2",
+    "libsidplayfp-wasm": "1.0.1",
     "minio": "^8.0.7"
   },
   "overrides": {

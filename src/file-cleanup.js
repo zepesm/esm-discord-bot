@@ -12,34 +12,47 @@ const MAX_AGE_DAYS = parseInt(getEnv('MAX_AGE_DAYS', '7')); // Files older than 
 // Main cleanup function
 async function cleanupFiles() {
   try {
-    // Get all files from MinIO
+    // Get all files from MinIO. Files are sorted newest first by listFiles.
     const files = await minioService.listFiles();
-    
-    console.log(`Found ${files.length} .prg files in MinIO`);
-    
-    // Delete files that exceed the maximum count
-    if (files.length > MAX_FILES) {
-      console.log(`Cleaning up old files (keeping ${MAX_FILES} newest files)`);
-      
-      // Files are already sorted by lastModified (newest first) from the listFiles function
-      for (let i = MAX_FILES; i < files.length; i++) {
-        await minioService.deleteFile(files[i].filename);
-        console.log(`Deleted ${files[i].filename} (exceeded max files limit)`);
-      }
-    }
-    
+
+    console.log(`Found ${files.length} managed files in MinIO`);
+
     // Calculate cutoff date for age-based cleanup
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - MAX_AGE_DAYS);
-    
-    // Delete files older than the maximum age
-    for (const file of files.slice(0, MAX_FILES)) {
-      if (file.lastModified.getTime() < cutoffDate.getTime()) {
-        await minioService.deleteFile(file.filename);
-        console.log(`Deleted ${file.filename} (older than ${MAX_AGE_DAYS} days)`);
+
+    // Work out everything that would go BEFORE deleting anything, so a run that
+    // is about to remove a lot of files says so first. Widening the set of
+    // extensions listFiles reports makes previously invisible files eligible for
+    // cleanup all at once, and that must never happen silently.
+    const overLimit = files.slice(MAX_FILES);
+    const tooOld = files
+      .slice(0, MAX_FILES)
+      .filter(file => file.lastModified.getTime() < cutoffDate.getTime());
+
+    if (overLimit.length + tooOld.length > 0) {
+      console.warn(
+        `⚠️  Cleanup will delete ${overLimit.length + tooOld.length} file(s): ` +
+        `${overLimit.length} over the MAX_FILES=${MAX_FILES} limit, ` +
+        `${tooOld.length} older than MAX_AGE_DAYS=${MAX_AGE_DAYS} days.`
+      );
+      if (overLimit.length > 0) {
+        console.warn(`   Oldest over the limit: ${overLimit[overLimit.length - 1].filename}`);
       }
     }
-    
+
+    // Delete files that exceed the maximum count
+    for (const file of overLimit) {
+      await minioService.deleteFile(file.filename);
+      console.log(`Deleted ${file.filename} (exceeded max files limit)`);
+    }
+
+    // Delete files older than the maximum age
+    for (const file of tooOld) {
+      await minioService.deleteFile(file.filename);
+      console.log(`Deleted ${file.filename} (older than ${MAX_AGE_DAYS} days)`);
+    }
+
     console.log('File cleanup completed successfully');
   } catch (error) {
     console.error('Error during file cleanup:', error);
