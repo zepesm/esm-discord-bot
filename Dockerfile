@@ -2,7 +2,12 @@
 # would buy only a smaller image while adding a second axis of "works on my
 # machine" - and a runtime mismatch between development and production is
 # exactly what this container exists to prevent.
-FROM node:22-bookworm-slim
+# Pinned to a full version, not the floating 22 tag. A container that exists to
+# stop the runtime drifting has no business drifting itself - the same commit
+# should not build a different Node months apart. Not pinned by digest on
+# purpose: that would also freeze Debian security rebuilds, which this image
+# should keep receiving.
+FROM node:22.23.2-bookworm-slim
 
 ENV NODE_ENV=production
 

@@ -89,20 +89,52 @@ test('cleanup limit validation', async (t) => {
     }
   });
 
-  await t.test('refuses a run that would delete far more than routine housekeeping', async () => {
+  await t.test('caps a mass deletion instead of doing it all at once', async () => {
     // This is what actually happened in production: widening the set of managed
-    // extensions made 171 previously invisible files eligible at once, and a
-    // warning in the startup log was not read in time to stop it
+    // extensions made 171 previously invisible files eligible in one run
     const { cleanupFiles, deleted, restore } = cleanupWithEnv(
       { MAX_FILES: '1000', MAX_AGE_DAYS: '1337', MAX_DELETIONS_PER_RUN: undefined }, recent(1171)
     );
     try {
       await cleanupFiles();
-      assert.deepEqual(deleted, [], 'a mass deletion was allowed through');
+      assert.equal(deleted.length, 25, 'a run deleted more than the per-run cap');
     } finally { restore(); }
   });
 
-  await t.test('allows the mass deletion once it is opted into explicitly', async () => {
+  await t.test('removes the oldest files first when it has to choose', async () => {
+    const { cleanupFiles, deleted, restore } = cleanupWithEnv(
+      { MAX_FILES: '10', MAX_AGE_DAYS: '3650', MAX_DELETIONS_PER_RUN: '3' }, recent(20)
+    );
+    try {
+      await cleanupFiles();
+      // recent() builds newest-first, so file-19 is the oldest of the twenty
+      assert.deepEqual(deleted, ['file-19.prg', 'file-18.prg', 'file-17.prg']);
+    } finally { restore(); }
+  });
+
+  await t.test('converges over repeated runs rather than latching', async () => {
+    // An all-or-nothing breaker would refuse here and keep refusing, letting the
+    // bucket grow without limit - one silent failure traded for another
+    let files = recent(60);
+    let rounds = 0;
+
+    while (rounds < 10) {
+      const { cleanupFiles, deleted, restore } = cleanupWithEnv(
+        { MAX_FILES: '50', MAX_AGE_DAYS: '3650', MAX_DELETIONS_PER_RUN: '4' }, files
+      );
+      try {
+        await cleanupFiles();
+        if (deleted.length === 0) break;
+        files = files.filter(f => !deleted.includes(f.filename));
+      } finally { restore(); }
+      rounds++;
+    }
+
+    assert.equal(files.length, 50, 'cleanup never reached the configured limit');
+    assert.ok(rounds < 10, 'cleanup did not converge');
+  });
+
+  await t.test('takes the whole batch when it fits under the cap', async () => {
     const { cleanupFiles, deleted, restore } = cleanupWithEnv(
       { MAX_FILES: '1000', MAX_AGE_DAYS: '1337', MAX_DELETIONS_PER_RUN: '500' }, recent(1171)
     );
@@ -119,7 +151,9 @@ test('cleanup limit validation', async (t) => {
     try {
       await cleanupFiles();
       assert.equal(deleted.length, 3);
-      assert.deepEqual(deleted, ['file-10.prg', 'file-11.prg', 'file-12.prg']);
+      // Oldest first, so that a run capped part way through removes the least
+      // recent work rather than an arbitrary slice
+      assert.deepEqual(deleted, ['file-12.prg', 'file-11.prg', 'file-10.prg']);
     } finally { restore(); }
   });
 });

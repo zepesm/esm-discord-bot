@@ -59,45 +59,44 @@ async function cleanupFiles() {
       .slice(0, MAX_FILES)
       .filter(file => file.lastModified.getTime() < cutoffDate.getTime());
 
-    const doomed = overLimit.length + tooOld.length;
+    // Oldest first, so a run that cannot take everything removes the least
+    // recent work rather than an arbitrary slice of it. Both passes produce a
+    // newest-first list, hence the reverse.
+    const candidates = [
+      ...overLimit.slice().reverse().map(file => ({ file, reason: 'exceeded max files limit' })),
+      ...tooOld.slice().reverse().map(file => ({ file, reason: `older than ${MAX_AGE_DAYS} days` })),
+    ];
 
-    if (doomed > 0) {
+    if (candidates.length > 0) {
       console.warn(
-        `⚠️  Cleanup will delete ${doomed} file(s): ` +
+        `⚠️  Cleanup has ${candidates.length} file(s) eligible for deletion: ` +
         `${overLimit.length} over the MAX_FILES=${MAX_FILES} limit, ` +
         `${tooOld.length} older than MAX_AGE_DAYS=${MAX_AGE_DAYS} days.`
       );
-      if (overLimit.length > 0) {
-        console.warn(`   Oldest over the limit: ${overLimit[overLimit.length - 1].filename}`);
-      }
     }
 
-    // A warning in a startup log is not a safety mechanism - nobody reads it
-    // in time. Normal operation removes a handful of files per run, so a run
-    // that suddenly wants to remove far more is a configuration change or a
-    // widened listing, not routine housekeeping. Refuse and make it a decision.
-    if (doomed > MAX_DELETIONS_PER_RUN) {
+    // Bounded per run rather than all-or-nothing. Refusing outright would
+    // latch: the overage only grows between runs, so one busy day would stop
+    // cleanup permanently and let the bucket grow without limit - trading one
+    // silent failure for another. Capping the batch converges on its own while
+    // keeping the worst case for a single run exactly the same.
+    const batch = candidates.slice(0, MAX_DELETIONS_PER_RUN);
+    const deferred = candidates.length - batch.length;
+
+    if (deferred > 0) {
       console.error(
-        `\n❌ Refusing to delete ${doomed} files in one run - the limit is ` +
-        `MAX_DELETIONS_PER_RUN=${MAX_DELETIONS_PER_RUN}.`
+        `\n❌ Deleting only ${batch.length} of ${candidates.length} eligible files - ` +
+        `MAX_DELETIONS_PER_RUN=${MAX_DELETIONS_PER_RUN} caps a single run.`
       );
-      console.error('   This usually means MAX_FILES or MAX_AGE_DAYS is lower than the bucket');
-      console.error('   has grown to, or that more file types just became visible to cleanup.');
-      console.error('   Nothing was deleted. Raise the right limit deliberately, or raise');
-      console.error('   MAX_DELETIONS_PER_RUN if this really is the intended cleanup.\n');
-      return;
+      console.error('   An overage this large usually means MAX_FILES or MAX_AGE_DAYS no longer');
+      console.error('   matches the bucket, or that more file types just became visible to');
+      console.error('   cleanup. The rest will go on later runs unless a limit is corrected.');
+      console.error('   Deletion is irreversible - check this before it drains.\n');
     }
 
-    // Delete files that exceed the maximum count
-    for (const file of overLimit) {
+    for (const { file, reason } of batch) {
       await minioService.deleteFile(file.filename);
-      console.log(`Deleted ${file.filename} (exceeded max files limit)`);
-    }
-
-    // Delete files older than the maximum age
-    for (const file of tooOld) {
-      await minioService.deleteFile(file.filename);
-      console.log(`Deleted ${file.filename} (older than ${MAX_AGE_DAYS} days)`);
+      console.log(`Deleted ${file.filename} (${reason})`);
     }
 
     console.log('File cleanup completed successfully');
