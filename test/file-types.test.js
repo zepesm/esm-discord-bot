@@ -51,6 +51,13 @@ test('stripTimestamp', async (t) => {
     assert.equal(stripTimestamp('tune-2-1788759111614.sid'), 'tune-2.sid');
   });
 
+  await t.test('leaves version numbers alone when there is no timestamp', () => {
+    // A loose \d+ would turn these into level.d64 and part-2.prg
+    assert.equal(stripTimestamp('level-42.d64'), 'level-42.d64');
+    assert.equal(stripTimestamp('part-2.prg'), 'part-2.prg');
+    assert.equal(stripTimestamp('demo-1999.sid'), 'demo-1999.sid');
+  });
+
   await t.test('leaves names without a timestamp alone', () => {
     assert.equal(stripTimestamp('plain.prg'), 'plain.prg');
     assert.equal(stripTimestamp(''), '');

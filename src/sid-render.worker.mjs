@@ -146,8 +146,14 @@ async function render() {
       },
     };
   } finally {
-    // The C++ context is not garbage collected
-    engine.dispose();
+    // The C++ context is not garbage collected. Guarded because an exception
+    // here would otherwise replace a perfectly good render with a dispose
+    // error, or mask the real failure on the way out.
+    try {
+      engine.dispose();
+    } catch (disposeError) {
+      console.error('Failed to dispose the SID engine:', disposeError);
+    }
   }
 }
 

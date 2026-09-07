@@ -9,9 +9,31 @@ const getEnv = (key, defaultValue = '') => process.env[key] || defaultValue;
 const MAX_FILES = parseInt(getEnv('MAX_FILES', '100')); // Maximum number of files to keep
 const MAX_AGE_DAYS = parseInt(getEnv('MAX_AGE_DAYS', '7')); // Files older than this many days will be deleted
 
+/**
+ * Both limits are used as slice bounds, and slice() treats NaN as 0 - so a
+ * typo in either variable would select every file for deletion rather than
+ * none. Refuse to run instead.
+ * @param {String} name - Variable name, for the message
+ * @param {Number} value - Parsed value
+ * @returns {Boolean} True when the limit is usable
+ */
+function isUsableLimit(name, value) {
+  if (Number.isFinite(value) && value > 0) return true;
+  console.error(
+    `❌ ${name} is not a positive number (got "${getEnv(name)}") - skipping cleanup entirely. ` +
+    `Fix the value before files can be managed again.`
+  );
+  return false;
+}
+
 // Main cleanup function
 async function cleanupFiles() {
   try {
+    // A bad limit must never be interpreted as "delete everything"
+    if (!isUsableLimit('MAX_FILES', MAX_FILES) || !isUsableLimit('MAX_AGE_DAYS', MAX_AGE_DAYS)) {
+      return;
+    }
+
     // Get all files from MinIO. Files are sorted newest first by listFiles.
     const files = await minioService.listFiles();
 

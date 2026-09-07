@@ -4,6 +4,22 @@ const fs = require('fs');
 const minioService = require('./minio-service');
 const { stripTimestamp } = require('./file-types');
 
+/**
+ * Escape a value for interpolation into the index page.
+ * File names come from Discord attachments, so they are attacker-chosen and
+ * survive path.basename with angle brackets and quotes intact.
+ * @param {String} value - Untrusted text
+ * @returns {String} HTML-safe text
+ */
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // Helper function to get environment variables with fallbacks
 const getEnv = (key, defaultValue = '') => process.env[key] || defaultValue;
 
@@ -125,12 +141,12 @@ async function setupFileServer(app) {
           <div class="files-grid">
             ${files.map(file => {
               // Extract the original filename without timestamp
-              const displayName = stripTimestamp(file.filename);
+              const displayName = escapeHtml(stripTimestamp(file.filename));
               // Format date
-              const dateStr = file.lastModified.toLocaleString();
+              const dateStr = escapeHtml(file.lastModified.toLocaleString());
               // Music files have no playUrl - there is nothing for the emulator to boot
               const playButton = file.playUrl
-                ? `<a href="${file.playUrl}" class="btn btn-primary" target="_blank">Play in Emulator</a>`
+                ? `<a href="${escapeHtml(file.playUrl)}" class="btn btn-primary" target="_blank">Play in Emulator</a>`
                 : '';
 
               return `
@@ -141,7 +157,7 @@ async function setupFileServer(app) {
                   </div>
                   <div class="buttons">
                     ${playButton}
-                    <a href="${file.url}" class="btn btn-secondary" target="_blank">Download</a>
+                    <a href="${escapeHtml(file.url)}" class="btn btn-secondary" target="_blank">Download</a>
                   </div>
                 </div>
               `;

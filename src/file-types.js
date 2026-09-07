@@ -34,7 +34,10 @@ function hasExtension(name, extensions = ALL_EXTENSIONS) {
  * @returns {String} Display name, e.g. "tune.sid"
  */
 function stripTimestamp(filename) {
-  const match = String(filename || '').match(/^(.*)-\d+(\.[^.]+)$/);
+  // Anchored to the 13 digits of an epoch-millis stamp on purpose. A looser
+  // \d+ would also eat legitimate version numbers, turning level-42.d64 into
+  // level.d64 for a file that was never timestamped.
+  const match = String(filename || '').match(/^(.*)-\d{13}(\.[^.]+)$/);
   return match ? `${match[1]}${match[2]}` : filename;
 }
 

@@ -5,7 +5,8 @@ const { createWriteStream } = require("fs");
 const os = require("os");
 const minioService = require("../minio-service");
 const BaseHandler = require("./base-handler");
-const { ALL_EXTENSIONS, EMULATOR_EXTENSIONS, hasExtension } = require("../file-types");
+const { ALL_EXTENSIONS, AUDIO_EXTENSIONS, EMULATOR_EXTENSIONS, hasExtension } = require("../file-types");
+const sidService = require("../sid-service");
 
 // Helper function to get environment variables with fallbacks
 const getEnv = (key, defaultValue = "") => process.env[key] || defaultValue;
@@ -134,11 +135,18 @@ class PrgFileHandler extends BaseHandler {
       // Stay silent about files another handler owns. The registry runs every
       // matching handler, so a "c64 <text>" message with a .sid attached would
       // otherwise get this rejection alongside the real answer from SidFileHandler.
-      const handledElsewhere = hasExtension(name, ALL_EXTENSIONS);
+      // Keyed off whether that handler is actually live: with SID rendering
+      // switched off nobody would answer, and the prefix help invites .sid.
+      const handledElsewhere = sidService.SID_ENABLED && hasExtension(name, AUDIO_EXTENSIONS);
 
       // Only notify about non-supported files if the command prefix was used
       if (!handledElsewhere && !this.isFromBot(message) && message.content.toLowerCase().startsWith(COMMAND_PREFIX)) {
-        await message.reply(`Skipping ${name} - only ${ALL_EXTENSIONS.join(', ')} files are supported.`);
+        await message.reply({
+          content: `Skipping ${name} - only ${ALL_EXTENSIONS.join(', ')} files are supported.`,
+          // The name comes from the attachment, so a file called @everyone.txt
+          // would otherwise ping the server through the bot
+          allowedMentions: { parse: [] },
+        });
       }
       return false;
     }

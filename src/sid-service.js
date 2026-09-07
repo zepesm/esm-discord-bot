@@ -36,6 +36,22 @@ const ROM_PATHS = {
 
 const WORKER_PATH = path.join(__dirname, 'sid-render.worker.mjs');
 
+// Slowest supported engine is reSIDfp at roughly 3.8x realtime, and MP3
+// encoding adds more on top, so a flat limit that suits a 30s tune starves a
+// 180s one. The configured value is treated as a floor, not a ceiling.
+const TIMEOUT_SECONDS_PER_RENDER_SECOND = 0.75;
+const TIMEOUT_STARTUP_ALLOWANCE_MS = 15000;
+
+/**
+ * Work out how long one render may take before it is abandoned
+ * @param {Number} seconds - Requested render length
+ * @returns {Number} Timeout in milliseconds
+ */
+function timeoutForRender(seconds) {
+  const scaled = seconds * TIMEOUT_SECONDS_PER_RENDER_SECOND * 1000 + TIMEOUT_STARTUP_ALLOWANCE_MS;
+  return Math.max(RENDER_TIMEOUT_MS, Math.round(scaled));
+}
+
 /**
  * A failure with a message that is safe and useful to show in Discord
  */
@@ -72,7 +88,7 @@ function enqueue(task) {
  * @param {Object} payload - Worker input
  * @returns {Promise<Object>} Worker result
  */
-function runWorker(payload, onProgress) {
+function runWorker(payload, onProgress, timeoutMs) {
   return new Promise((resolve, reject) => {
     const worker = new Worker(WORKER_PATH, { workerData: payload });
     let settled = false;
@@ -81,16 +97,18 @@ function runWorker(payload, onProgress) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      worker.terminate();
+      // terminate() returns a promise that rejects when the worker died during
+      // startup, and an unhandled rejection would take the bot down with it
+      worker.terminate().catch(() => {});
       fn(value);
     };
 
     const timer = setTimeout(() => {
       finish(reject, new SidRenderError(
-        `rendering timed out after ${Math.round(RENDER_TIMEOUT_MS / 1000)}s`,
+        `rendering timed out after ${Math.round(timeoutMs / 1000)}s`,
         { code: 'timeout' }
       ));
-    }, RENDER_TIMEOUT_MS);
+    }, timeoutMs);
 
     worker.on('message', (message) => {
       if (message.type === 'progress') {
@@ -162,7 +180,7 @@ async function renderSid(buffer, options = {}) {
       bitrate: options.bitrate || MP3_BITRATE,
       engine: options.engine || SID_ENGINE,
       roms: ROM_PATHS,
-    }, options.onProgress));
+    }, options.onProgress, timeoutForRender(seconds)));
   } finally {
     queueDepth--;
   }

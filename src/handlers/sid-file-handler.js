@@ -14,6 +14,9 @@ const flavour = require("../sid-flavour");
 // progress bar is deliberately coarse
 const PROGRESS_EDIT_INTERVAL_MS = 2500;
 
+// A SID is at most a megabyte, so a download this slow is a stalled connection
+const DOWNLOAD_TIMEOUT_MS = 30000;
+
 // Helper function to get environment variables with fallbacks
 const getEnv = (key, defaultValue = "") => process.env[key] || defaultValue;
 
@@ -138,9 +141,20 @@ class SidFileHandler extends BaseHandler {
     const loadingLine = flavour.loadingLine();
     const status = await this.safeReply(message, {
       content: `${loadingLine}\n_${name}_`,
+      allowedMentions: { parse: [] },
     });
 
+    let fileUrl = null;
+
     try {
+      // Refuse oversized payloads before spending a download on them
+      if (attachment.size > sidService.MAX_INPUT_BYTES) {
+        throw new sidService.SidRenderError(
+          `it is ${(attachment.size / 1024 / 1024).toFixed(1)} MB, far larger than any SID tune`,
+          { code: 'too-large' }
+        );
+      }
+
       const timestamp = Date.now();
       const ext = path.extname(name);
       const filename = `${path.basename(name, ext)}-${timestamp}${ext.toLowerCase()}`;
@@ -149,11 +163,13 @@ class SidFileHandler extends BaseHandler {
       const tempFilePath = path.join(tempDir, filename);
 
       await this.downloadFile(url, tempFilePath);
-      const sidBuffer = fs.readFileSync(tempFilePath);
+      const sidBuffer = await fs.promises.readFile(tempFilePath);
 
-      // Store the original first, so the download button works even when the
-      // render is what fails
-      const fileUrl = await minioService.uploadFile(tempFilePath, filename);
+      // Validate before storing. Anything merely named .sid would otherwise be
+      // published to public storage and then orphaned when the render fails.
+      sidService.parseSidHeader(sidBuffer);
+
+      fileUrl = await minioService.uploadFile(tempFilePath, filename);
 
       const rendered = await sidService.renderSid(sidBuffer, {
         onProgress: this.progressReporter(status, loadingLine, name),
@@ -169,9 +185,12 @@ class SidFileHandler extends BaseHandler {
       console.log(`Rendered ${filename} to ${rendered.mp3.length} bytes of MP3`);
       return true;
     } catch (error) {
+      // Full detail server-side, a safe summary in the channel
       console.error(`Error processing SID ${name}:`, error);
       await this.finish(status, message, {
-        content: `${flavour.failureLine()}\n_${name}_ - ${error.message}`,
+        content: `${flavour.failureLine()}\n_${name}_ - ${this.userFacingError(error)}`,
+        // The file made it to storage before the failure, so keep it reachable
+        ...(fileUrl ? { components: this.downloadRow(fileUrl) } : {}),
       });
       return false;
     } finally {
@@ -179,6 +198,20 @@ class SidFileHandler extends BaseHandler {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
     }
+  }
+
+  /**
+   * Reduce an error to something safe to post in a channel.
+   * Raw messages from MinIO, the worker or Node carry endpoints and filesystem
+   * paths that have no business being public.
+   * @param {Error} error - The failure
+   * @returns {String} Text for the channel
+   */
+  userFacingError(error) {
+    if (error instanceof sidService.SidRenderError) return error.message;
+    if (/Not a SID file/i.test(error.message)) return "that doesn't look like a SID tune";
+    if (/Failed to download/i.test(error.message)) return "the file wouldn't download from Discord";
+    return "something broke while handling it - the details are in the log";
   }
 
   /**
@@ -206,7 +239,9 @@ class SidFileHandler extends BaseHandler {
         : flavour.progressBar(fraction);
 
       status
-        .edit({ content: `${loadingLine}\n_${name}_\n${detail}` })
+        // The name is attacker-chosen, so a file called @everyone.sid would
+        // otherwise ping the whole server through an edit
+        .edit({ content: `${loadingLine}\n_${name}_\n${detail}`, allowedMentions: { parse: [] } })
         .catch(() => {})
         .finally(() => { inFlight = false; });
     };
@@ -220,8 +255,10 @@ class SidFileHandler extends BaseHandler {
    * @param {Object} payload - Final message payload
    */
   async finish(status, message, payload) {
-    // Clearing content is explicit, otherwise the loading line would linger
-    const finalPayload = { content: null, ...payload };
+    // Clearing content is explicit, otherwise the loading line would linger.
+    // allowedMentions comes last for the same reason as in safeReply: unlike
+    // reply(), an edit parses every mention type by default.
+    const finalPayload = { content: null, ...payload, allowedMentions: { parse: [] } };
 
     if (status) {
       try {
@@ -352,10 +389,12 @@ class SidFileHandler extends BaseHandler {
   async safeReply(message, payload) {
     try {
       return await message.reply({
-        allowedMentions: { repliedUser: false },
         // A render takes seconds, so the original going away is a real case
         failIfNotExists: false,
         ...payload,
+        // Last on purpose, so no payload can reintroduce mention parsing:
+        // attachment names reach the content and are attacker-chosen
+        allowedMentions: { parse: [], repliedUser: false },
       });
     } catch (error) {
       console.error(`Failed to reply in channel ${message.channelId}:`, error);
@@ -372,24 +411,44 @@ class SidFileHandler extends BaseHandler {
   downloadFile(url, destination) {
     return new Promise((resolve, reject) => {
       const file = createWriteStream(destination);
+      let settled = false;
 
-      https
-        .get(url, (response) => {
-          if (response.statusCode !== 200) {
-            reject(new Error(`Failed to download file: ${response.statusCode}`));
-            return;
-          }
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        file.destroy();
+        fs.unlink(destination, () => {}); // Delete the partial file
+        reject(error);
+      };
 
-          response.pipe(file);
+      // Without this an ENOSPC or EACCES mid-pipe becomes an unhandled 'error'
+      // event, which takes the whole process down
+      file.on("error", fail);
 
-          file.on("finish", () => {
-            file.close(resolve);
-          });
-        })
-        .on("error", (err) => {
-          fs.unlink(destination, () => {}); // Delete the file if there's an error
-          reject(err);
+      const request = https.get(url, (response) => {
+        if (response.statusCode !== 200) {
+          // Drain the socket, otherwise the connection is held open
+          response.resume();
+          fail(new Error(`Failed to download file: ${response.statusCode}`));
+          return;
+        }
+
+        response.on("error", fail);
+        response.pipe(file);
+
+        file.on("finish", () => {
+          if (settled) return;
+          settled = true;
+          file.close((closeError) => (closeError ? reject(closeError) : resolve()));
         });
+      });
+
+      request.on("error", fail);
+
+      // A stalled connection would otherwise leave the loading message up forever
+      request.setTimeout(DOWNLOAD_TIMEOUT_MS, () => {
+        request.destroy(new Error(`Download timed out after ${DOWNLOAD_TIMEOUT_MS / 1000}s`));
+      });
     });
   }
 }

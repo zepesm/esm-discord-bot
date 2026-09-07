@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
+const path = require('path');
 const { renderSid, SidRenderError } = require('../src/sid-service');
 
 /**
@@ -11,7 +12,16 @@ const { renderSid, SidRenderError } = require('../src/sid-service');
 function fixturePath() {
   try {
     return require.resolve('libsidplayfp-wasm/fixtures/test-tone-c4.sid');
-  } catch {
+  } catch (error) {
+    // Skipping is only acceptable on a checkout without dependencies. Once
+    // node_modules exists, an unresolvable fixture means this suite - the only
+    // place the worker, encoder and silence detection actually run - would
+    // pass while verifying nothing.
+    if (fs.existsSync(path.join(__dirname, '..', 'node_modules'))) {
+      throw new Error(
+        `node_modules is present but the libsidplayfp-wasm fixture could not be resolved: ${error.message}`
+      );
+    }
     return null;
   }
 }

@@ -136,7 +136,9 @@ test('coexistence with SidFileHandler', async (t) => {
     await handler.handle(message);
 
     assert.equal(message.replies.length, 1);
-    assert.match(String(message.replies[0]), /Skipping notes\.txt/);
+    assert.match(message.replies[0].content, /Skipping notes\.txt/);
+    // A file called @everyone.txt must not ping the server through the bot
+    assert.deepEqual(message.replies[0].allowedMentions, { parse: [] });
   });
 
   await t.test('never deletes a message that also carries a .sid', async () => {
