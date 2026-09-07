@@ -13,6 +13,12 @@ A Discord bot that allows users to upload Commodore 64 .prg files and generates 
 - Automatic file cleanup to manage storage space
 - Modular architecture allowing easy addition of new bot actions and commands
 
+## Requirements
+
+Node 20 or newer. SID rendering runs libsidplayfp in WebAssembly on a worker
+thread, which older versions cannot load, and the bot refuses to start below
+that rather than failing later with an unrelated-looking error.
+
 ## Setup
 
 1. Clone this repository
