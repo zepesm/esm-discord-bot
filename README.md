@@ -13,6 +13,12 @@ A Discord bot that allows users to upload Commodore 64 .prg files and generates 
 - Automatic file cleanup to manage storage space
 - Modular architecture allowing easy addition of new bot actions and commands
 
+## Requirements
+
+Node 20 or newer. SID rendering runs libsidplayfp in WebAssembly on a worker
+thread, which older versions cannot load, and the bot refuses to start below
+that rather than failing later with an unrelated-looking error.
+
 ## Setup
 
 1. Clone this repository
@@ -59,6 +65,7 @@ System environment variables take precedence over those defined in the `.env` fi
 | `EMULATOR_WIDE`      | Whether to use widescreen mode           | `false`                   |
 | `MAX_FILES`          | Maximum number of files to keep          | `100`                     |
 | `MAX_AGE_DAYS`       | Maximum age of files in days             | `7`                       |
+| `MAX_DELETIONS_PER_RUN` | Most files one cleanup run may delete | `25`                      |
 | `SID_ENABLED`        | Enable .sid rendering                    | `true`                    |
 | `SID_RENDER_SECONDS` | Length of the rendered MP3               | `180`                     |
 | `SID_FADE_SECONDS`   | Fade-out at the end of the render        | `5`                       |
@@ -136,18 +143,49 @@ To connect to an existing MinIO instance instead of creating a new one:
    npm start
    ```
 
-## Running with Docker Compose
+## Deployment
 
-The easiest way to run the bot is using Docker Compose:
+The bot ships as a container, and that is the only supported way to run it in
+production. Pinning the runtime and installing from the committed lockfile is
+deliberate: the bot previously broke on a host whose Node version differed from
+the one it was developed against, and the failure surfaced as an unrelated
+error from inside a dependency.
+
+MinIO is not part of this - it stays external and is reached through the
+`MINIO_*` variables.
+
+### Docker Compose
 
 ```
 docker-compose up -d
 ```
 
-When connecting to an existing MinIO instance, update the environment variables in docker-compose.yml or provide them as system environment variables:
+Environment variables come from the shell or a `.env` file beside the compose
+file:
 
 ```
 DISCORD_TOKEN=your_token MINIO_ENDPOINT=your-server docker-compose up -d
+```
+
+### Coolify
+
+Point a new application at this repository and let it build from the
+`Dockerfile`. Set every variable from the table above in Coolify's environment
+settings - the image deliberately contains no `.env`.
+
+The container exposes no port and needs no domain. Emulator and download links
+point straight at MinIO, so the built-in HTTP server only serves the optional
+file browser and nothing outside the container has to reach it.
+
+Give it around 512 MB. A render holds the decoded PCM, its deinterleaved copies
+and the WebAssembly heap at the same time, which peaks near 90 MB on top of the
+idle footprint.
+
+### Local development
+
+```
+npm install
+npm start
 ```
 
 ## Required Permissions

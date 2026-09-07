@@ -9,6 +9,11 @@ const getEnv = (key, defaultValue = '') => process.env[key] || defaultValue;
 const MAX_FILES = parseInt(getEnv('MAX_FILES', '100')); // Maximum number of files to keep
 const MAX_AGE_DAYS = parseInt(getEnv('MAX_AGE_DAYS', '7')); // Files older than this many days will be deleted
 
+// Circuit breaker. Routine housekeeping removes a few files per run; a run that
+// wants to remove far more means the configuration no longer matches reality,
+// and deleting is not reversible.
+const MAX_DELETIONS_PER_RUN = parseInt(getEnv('MAX_DELETIONS_PER_RUN', '25'));
+
 /**
  * Both limits are used as slice bounds, and slice() treats NaN as 0 - so a
  * typo in either variable would select every file for deletion rather than
@@ -30,7 +35,9 @@ function isUsableLimit(name, value) {
 async function cleanupFiles() {
   try {
     // A bad limit must never be interpreted as "delete everything"
-    if (!isUsableLimit('MAX_FILES', MAX_FILES) || !isUsableLimit('MAX_AGE_DAYS', MAX_AGE_DAYS)) {
+    if (!isUsableLimit('MAX_FILES', MAX_FILES)
+      || !isUsableLimit('MAX_AGE_DAYS', MAX_AGE_DAYS)
+      || !isUsableLimit('MAX_DELETIONS_PER_RUN', MAX_DELETIONS_PER_RUN)) {
       return;
     }
 
@@ -52,27 +59,44 @@ async function cleanupFiles() {
       .slice(0, MAX_FILES)
       .filter(file => file.lastModified.getTime() < cutoffDate.getTime());
 
-    if (overLimit.length + tooOld.length > 0) {
+    // Oldest first, so a run that cannot take everything removes the least
+    // recent work rather than an arbitrary slice of it. Both passes produce a
+    // newest-first list, hence the reverse.
+    const candidates = [
+      ...overLimit.slice().reverse().map(file => ({ file, reason: 'exceeded max files limit' })),
+      ...tooOld.slice().reverse().map(file => ({ file, reason: `older than ${MAX_AGE_DAYS} days` })),
+    ];
+
+    if (candidates.length > 0) {
       console.warn(
-        `⚠️  Cleanup will delete ${overLimit.length + tooOld.length} file(s): ` +
+        `⚠️  Cleanup has ${candidates.length} file(s) eligible for deletion: ` +
         `${overLimit.length} over the MAX_FILES=${MAX_FILES} limit, ` +
         `${tooOld.length} older than MAX_AGE_DAYS=${MAX_AGE_DAYS} days.`
       );
-      if (overLimit.length > 0) {
-        console.warn(`   Oldest over the limit: ${overLimit[overLimit.length - 1].filename}`);
-      }
     }
 
-    // Delete files that exceed the maximum count
-    for (const file of overLimit) {
-      await minioService.deleteFile(file.filename);
-      console.log(`Deleted ${file.filename} (exceeded max files limit)`);
+    // Bounded per run rather than all-or-nothing. Refusing outright would
+    // latch: the overage only grows between runs, so one busy day would stop
+    // cleanup permanently and let the bucket grow without limit - trading one
+    // silent failure for another. Capping the batch converges on its own while
+    // keeping the worst case for a single run exactly the same.
+    const batch = candidates.slice(0, MAX_DELETIONS_PER_RUN);
+    const deferred = candidates.length - batch.length;
+
+    if (deferred > 0) {
+      console.error(
+        `\n❌ Deleting only ${batch.length} of ${candidates.length} eligible files - ` +
+        `MAX_DELETIONS_PER_RUN=${MAX_DELETIONS_PER_RUN} caps a single run.`
+      );
+      console.error('   An overage this large usually means MAX_FILES or MAX_AGE_DAYS no longer');
+      console.error('   matches the bucket, or that more file types just became visible to');
+      console.error('   cleanup. The rest will go on later runs unless a limit is corrected.');
+      console.error('   Deletion is irreversible - check this before it drains.\n');
     }
 
-    // Delete files older than the maximum age
-    for (const file of tooOld) {
+    for (const { file, reason } of batch) {
       await minioService.deleteFile(file.filename);
-      console.log(`Deleted ${file.filename} (older than ${MAX_AGE_DAYS} days)`);
+      console.log(`Deleted ${file.filename} (${reason})`);
     }
 
     console.log('File cleanup completed successfully');
