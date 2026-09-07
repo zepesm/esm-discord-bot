@@ -1,8 +1,10 @@
-version: "3"
 services:
   discord-bot:
     build: .
     restart: unless-stopped
+    # Reaps the worker threads' child processes and forwards signals, so the
+    # container stops cleanly instead of waiting for a kill
+    init: true
     environment:
       # Discord configuration
       - DISCORD_TOKEN=${DISCORD_TOKEN}
@@ -30,6 +32,7 @@ services:
       # File management configuration
       - MAX_FILES=${MAX_FILES:-100}
       - MAX_AGE_DAYS=${MAX_AGE_DAYS:-7}
+      - MAX_DELETIONS_PER_RUN=${MAX_DELETIONS_PER_RUN:-25}
 
       # SID music configuration
       - SID_ENABLED=${SID_ENABLED:-true}
