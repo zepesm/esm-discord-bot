@@ -5,6 +5,8 @@ const { createWriteStream } = require("fs");
 const os = require("os");
 const minioService = require("../minio-service");
 const BaseHandler = require("./base-handler");
+const { ALL_EXTENSIONS, AUDIO_EXTENSIONS, EMULATOR_EXTENSIONS, hasExtension } = require("../file-types");
+const sidService = require("../sid-service");
 
 // Helper function to get environment variables with fallbacks
 const getEnv = (key, defaultValue = "") => process.env[key] || defaultValue;
@@ -45,10 +47,9 @@ class PrgFileHandler extends BaseHandler {
    * @returns {Boolean} True if a supported file is attached
    */
   hasSupportedFiles(message) {
-    return message.attachments.some(attachment => {
-      const lowerName = (attachment.name || '').toLowerCase();
-      return lowerName.endsWith('.prg') || lowerName.endsWith('.d64');
-    });
+    return message.attachments.some(attachment =>
+      hasExtension(attachment.name, EMULATOR_EXTENSIONS)
+    );
   }
 
   /**
@@ -86,7 +87,7 @@ class PrgFileHandler extends BaseHandler {
   async handle(message) {
     // If no attachments but command prefix was used, show help
     if (message.attachments.size === 0) {
-      await message.reply("Please attach a .prg or .d64 file to your message.");
+      await message.reply(`Please attach a ${ALL_EXTENSIONS.join(', ')} file to your message.`);
       return;
     }
 
@@ -131,9 +132,21 @@ class PrgFileHandler extends BaseHandler {
     const isPrg = lowerName.endsWith(".prg");
     const isD64 = lowerName.endsWith(".d64");
     if (!isPrg && !isD64) {
+      // Stay silent about files another handler owns. The registry runs every
+      // matching handler, so a "c64 <text>" message with a .sid attached would
+      // otherwise get this rejection alongside the real answer from SidFileHandler.
+      // Keyed off whether that handler is actually live: with SID rendering
+      // switched off nobody would answer, and the prefix help invites .sid.
+      const handledElsewhere = sidService.SID_ENABLED && hasExtension(name, AUDIO_EXTENSIONS);
+
       // Only notify about non-supported files if the command prefix was used
-      if (!this.isFromBot(message) && message.content.toLowerCase().startsWith(COMMAND_PREFIX)) {
-        await message.reply(`Skipping ${name} - only .prg or .d64 files are supported.`);
+      if (!handledElsewhere && !this.isFromBot(message) && message.content.toLowerCase().startsWith(COMMAND_PREFIX)) {
+        await message.reply({
+          content: `Skipping ${name} - only ${ALL_EXTENSIONS.join(', ')} files are supported.`,
+          // The name comes from the attachment, so a file called @everyone.txt
+          // would otherwise ping the server through the bot
+          allowedMentions: { parse: [] },
+        });
       }
       return false;
     }

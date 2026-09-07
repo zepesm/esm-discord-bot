@@ -30,6 +30,22 @@ services:
       # File management configuration
       - MAX_FILES=${MAX_FILES:-100}
       - MAX_AGE_DAYS=${MAX_AGE_DAYS:-7}
+
+      # SID music configuration
+      - SID_ENABLED=${SID_ENABLED:-true}
+      - SID_RENDER_SECONDS=${SID_RENDER_SECONDS:-180}
+      - SID_FADE_SECONDS=${SID_FADE_SECONDS:-5}
+      - SID_MP3_BITRATE=${SID_MP3_BITRATE:-128}
+      - SID_ENGINE=${SID_ENGINE:-sidlite}
+      - SID_RENDER_TIMEOUT_MS=${SID_RENDER_TIMEOUT_MS:-60000}
+      - SID_QUEUE_LIMIT=${SID_QUEUE_LIMIT:-8}
+      - SID_MAX_INPUT_BYTES=${SID_MAX_INPUT_BYTES:-1048576}
+      - SID_MAX_MP3_BYTES=${SID_MAX_MP3_BYTES:-8388608}
+      - SID_MAX_FILES_PER_MESSAGE=${SID_MAX_FILES_PER_MESSAGE:-4}
+      # Optional, and only useful with a volume mounting the images in
+      - SID_KERNAL_ROM=${SID_KERNAL_ROM:-}
+      - SID_BASIC_ROM=${SID_BASIC_ROM:-}
+      - SID_CHARGEN_ROM=${SID_CHARGEN_ROM:-}
     networks:
       - coolify
 

@@ -10,7 +10,8 @@ This directory contains a modular message handler system for the C64 Discord bot
 
 ## Existing Handlers
 
-- `prg-file-handler.js` - Handles .prg file attachments and emulator setup
+- `prg-file-handler.js` - Handles .prg and .d64 attachments and emulator setup
+- `sid-file-handler.js` - Renders .sid music to MP3 and attaches it to the reply
 - `help-handler.js` - Provides help information when requested
 - `ping-handler.js` - Simple ping/pong command for testing
 
@@ -68,5 +69,7 @@ Handlers are executed in order of priority (lower numbers first). This allows yo
 Default priorities:
 
 - PrgFileHandler: 10
+- SidFileHandler: 15
 - HelpHandler: 20
 - PingHandler: 30
+- ReactionHandler: 40

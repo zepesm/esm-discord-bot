@@ -3,6 +3,7 @@
  */
 const registry = require('./handler-registry');
 const PrgFileHandler = require('./prg-file-handler');
+const SidFileHandler = require('./sid-file-handler');
 const HelpHandler = require('./help-handler');
 const PingHandler = require('./ping-handler');
 
@@ -17,6 +18,7 @@ function initializeHandlers() {
 
   // Register all handlers
   registry.register(new PrgFileHandler());
+  registry.register(new SidFileHandler());
   registry.register(new HelpHandler());
   registry.register(new PingHandler());
   
@@ -33,6 +35,7 @@ module.exports = {
   initializeHandlers,
   // Export handler classes for easy access
   PrgFileHandler,
+  SidFileHandler,
   HelpHandler,
   PingHandler
 }; 

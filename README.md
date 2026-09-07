@@ -4,8 +4,9 @@ A Discord bot that allows users to upload Commodore 64 .prg files and generates 
 
 ## Features
 
-- Automatically processes any .prg files uploaded to channels where the bot is present
-- Accepts Commodore 64 `.prg` files as attachments
+- Automatically processes any .prg, .d64 and .sid files uploaded to channels where the bot is present
+- Accepts Commodore 64 `.prg`, `.d64` and `.sid` files as attachments
+- Renders `.sid` music to MP3 and attaches it, so it plays inline in Discord
 - Saves attached files to MinIO storage
 - Generates a direct URL to the online C64 emulator with the file pre-loaded
 - Responds with an inline clickable link in Discord
@@ -58,6 +59,19 @@ System environment variables take precedence over those defined in the `.env` fi
 | `EMULATOR_WIDE`      | Whether to use widescreen mode           | `false`                   |
 | `MAX_FILES`          | Maximum number of files to keep          | `100`                     |
 | `MAX_AGE_DAYS`       | Maximum age of files in days             | `7`                       |
+| `SID_ENABLED`        | Enable .sid rendering                    | `true`                    |
+| `SID_RENDER_SECONDS` | Length of the rendered MP3               | `180`                     |
+| `SID_FADE_SECONDS`   | Fade-out at the end of the render        | `5`                       |
+| `SID_MP3_BITRATE`    | MP3 bitrate in kbps                      | `128`                     |
+| `SID_ENGINE`         | `sidlite` (fast) or `residfp` (accurate) | `sidlite`                 |
+| `SID_RENDER_TIMEOUT_MS` | Per-tune render time limit            | `60000`                   |
+| `SID_QUEUE_LIMIT`    | Queued renders before rejecting          | `8`                       |
+| `SID_MAX_INPUT_BYTES` | Largest accepted .sid file              | `1048576`                 |
+| `SID_MAX_MP3_BYTES`  | Largest MP3 the bot will attach          | `8388608`                 |
+| `SID_MAX_FILES_PER_MESSAGE` | .sid attachments handled per message | `4`                  |
+| `SID_KERNAL_ROM`     | Optional path to a KERNAL ROM image      | _(unset)_                 |
+| `SID_BASIC_ROM`      | Optional path to a BASIC ROM image       | _(unset)_                 |
+| `SID_CHARGEN_ROM`    | Optional path to a CHARGEN ROM image     | _(unset)_                 |
 
 ## Discord Bot Setup
 
@@ -149,8 +163,11 @@ There are two ways to use the bot:
 
 1. **Automatic Mode** (Recommended):
 
-   - Simply upload a `.prg` file to any channel where the bot is present
-   - The bot will automatically process the file and reply with an emulator link
+   - Simply upload a `.prg`, `.d64` or `.sid` file to any channel where the bot is present
+   - For `.prg` and `.d64` the bot replies with an emulator link
+   - For `.sid` the bot renders the tune to MP3 and attaches it, so Discord shows
+     its audio player and you can listen without leaving the channel. The original
+     `.sid` stays available behind a download button.
    - This also works for files posted by other bots, apps and webhooks, such as CI
      build reports. Those messages are never deleted - the bot only adds its reply
      underneath. Set `ALLOW_BOT_UPLOADS=false` to turn this off.
@@ -167,7 +184,7 @@ The bot will save the file to MinIO storage and respond with a link to play it i
 
 The bot includes automatic file management:
 
-- Only keeps the latest 100 files
+- Only keeps the latest 100 files, counting `.prg`, `.d64` and `.sid` together
 - Automatically deletes files older than 7 days
 - You can adjust these settings using the `MAX_FILES` and `MAX_AGE_DAYS` environment variables
 
@@ -183,7 +200,8 @@ The bot uses a modular architecture based on handlers, making it easy to add new
 
 ### Included Handlers
 
-- `PrgFileHandler`: Processes .prg file attachments and generates emulator links
+- `PrgFileHandler`: Processes .prg and .d64 attachments and generates emulator links
+- `SidFileHandler`: Renders .sid music to MP3 on a worker thread and attaches it
 - `HelpHandler`: Provides help information when requested
 - `PingHandler`: Simple ping-pong command for testing
 - `ReactionHandler`: Responds to emoji reactions on messages with .prg files

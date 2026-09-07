@@ -1,4 +1,5 @@
 const BaseHandler = require("./base-handler");
+const { ALL_EXTENSIONS, hasExtension } = require("../file-types");
 
 /**
  * Handler for emoji reactions
@@ -48,21 +49,21 @@ class ReactionHandler extends BaseHandler {
     // Get the message 
     const message = reaction.message;
     
-    // Look for .prg attachments in the message
-    const prgAttachments = message.attachments.filter(attachment => 
-      attachment.name?.toLowerCase().endsWith('.prg')
+    // Look for supported attachments in the message
+    const supportedAttachments = message.attachments.filter(attachment =>
+      hasExtension(attachment.name, ALL_EXTENSIONS)
     );
-    
-    if (prgAttachments.size > 0) {
-      // There are PRG files in this message, let user know they can use the command
+
+    if (supportedAttachments.size > 0) {
+      // There are supported files in this message, let user know about the command
       await message.reply({
-        content: `Hi <@${user.id}>, you can use the c64 command to emulate these PRG files!`,
+        content: `Hi <@${user.id}>, you can use the c64 command on these files!`,
         allowedMentions: { users: [user.id] }
       });
     } else {
-      // No PRG files found
+      // Nothing the bot can work with
       await message.reply({
-        content: `Hi <@${user.id}>, no PRG files found in this message. Upload a C64 program to use the emulator.`,
+        content: `Hi <@${user.id}>, no C64 files found in this message. Upload a .prg, .d64 or .sid file to get started.`,
         allowedMentions: { users: [user.id] }
       });
     }

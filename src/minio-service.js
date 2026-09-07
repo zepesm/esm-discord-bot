@@ -4,6 +4,7 @@ const path = require('path');
 const stream = require('stream');
 const https = require('https');
 const http = require('http');
+const { ALL_EXTENSIONS, EMULATOR_EXTENSIONS, hasExtension } = require('./file-types');
 
 // Helper function to get environment variables with fallbacks
 const getEnv = (key, defaultValue = '') => process.env[key] || defaultValue;
@@ -206,7 +207,9 @@ async function listFiles() {
     // First collect all objects 
     await new Promise((resolve, reject) => {
       stream.on('data', (obj) => {
-        if (obj.name.endsWith('.prg') || obj.name.endsWith('.PRG')) {
+        // Every type the bot stores, not just .prg - anything missing here is
+        // invisible to the file browser, the JSON API and retention
+        if (hasExtension(obj.name, ALL_EXTENSIONS)) {
           objects.push(obj);
         }
       });
@@ -219,11 +222,15 @@ async function listFiles() {
     const files = await Promise.all(objects.map(async (obj) => {
       try {
         const fileUrl = getFileUrl(obj.name);
-        const emulatorConfig = getEmulatorConfig(fileUrl);
-        
-        // Create emulator URL with JSON configuration
-        const playUrl = `https://vc64web.github.io/#${encodeURIComponent(JSON.stringify(emulatorConfig))}`;
-        
+
+        // Only emulator formats get a vc64web link - a .sid is music, not a
+        // program the emulator can boot
+        let playUrl = null;
+        if (hasExtension(obj.name, EMULATOR_EXTENSIONS)) {
+          const emulatorConfig = getEmulatorConfig(fileUrl);
+          playUrl = `https://vc64web.github.io/#${encodeURIComponent(JSON.stringify(emulatorConfig))}`;
+        }
+
         return {
           filename: obj.name,
           url: fileUrl,
@@ -240,7 +247,7 @@ async function listFiles() {
     const validFiles = files.filter(file => file !== null);
     validFiles.sort((a, b) => b.lastModified - a.lastModified);
     
-    console.log(`Listed ${validFiles.length} .prg files from MinIO bucket ${BUCKET_NAME}`);
+    console.log(`Listed ${validFiles.length} files from MinIO bucket ${BUCKET_NAME}`);
     return validFiles;
   } catch (error) {
     console.error('Error listing files from MinIO:', error);

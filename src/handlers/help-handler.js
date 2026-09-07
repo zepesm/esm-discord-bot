@@ -50,7 +50,7 @@ class HelpHandler extends BaseHandler {
       fields: [
         {
           name: "Usage",
-          value: `Upload a .prg/.d64 file - i'll take care of the rest.`
+          value: `Upload a .prg/.d64 file and i'll give you an emulator link. Upload a .sid and i'll play it for you.`
         },
         {
           name: "Commands",
