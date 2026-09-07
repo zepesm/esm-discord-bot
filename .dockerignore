@@ -4,7 +4,9 @@ npm-debug.log
 .env.example
 .git
 .gitignore
-README.md
 .dockerignore
-c64-discord-bot.service
-start.sh 
+Dockerfile
+docker-compose.yml
+README.md
+test
+public

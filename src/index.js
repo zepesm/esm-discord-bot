@@ -1,3 +1,16 @@
+// Checked before anything else is required. On an unsupported Node the failure
+// would otherwise surface as a cryptic error from deep inside a dependency -
+// running under Node 16 reported ERR_REQUIRE_ESM from query-string, which says
+// nothing about the actual cause.
+const MINIMUM_NODE_MAJOR = 20;
+const nodeMajor = parseInt(process.versions.node.split('.')[0], 10);
+if (nodeMajor < MINIMUM_NODE_MAJOR) {
+  console.error(`\n❌ This bot needs Node ${MINIMUM_NODE_MAJOR} or newer - running on ${process.version}.`);
+  console.error('   SID rendering uses WebAssembly and worker threads that older versions cannot load.');
+  console.error('   With nvm: nvm install 22 && nvm alias default 22, then restart the process manager.');
+  process.exit(1);
+}
+
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');

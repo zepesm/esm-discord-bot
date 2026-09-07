@@ -9,6 +9,11 @@ const getEnv = (key, defaultValue = '') => process.env[key] || defaultValue;
 const MAX_FILES = parseInt(getEnv('MAX_FILES', '100')); // Maximum number of files to keep
 const MAX_AGE_DAYS = parseInt(getEnv('MAX_AGE_DAYS', '7')); // Files older than this many days will be deleted
 
+// Circuit breaker. Routine housekeeping removes a few files per run; a run that
+// wants to remove far more means the configuration no longer matches reality,
+// and deleting is not reversible.
+const MAX_DELETIONS_PER_RUN = parseInt(getEnv('MAX_DELETIONS_PER_RUN', '25'));
+
 /**
  * Both limits are used as slice bounds, and slice() treats NaN as 0 - so a
  * typo in either variable would select every file for deletion rather than
@@ -30,7 +35,9 @@ function isUsableLimit(name, value) {
 async function cleanupFiles() {
   try {
     // A bad limit must never be interpreted as "delete everything"
-    if (!isUsableLimit('MAX_FILES', MAX_FILES) || !isUsableLimit('MAX_AGE_DAYS', MAX_AGE_DAYS)) {
+    if (!isUsableLimit('MAX_FILES', MAX_FILES)
+      || !isUsableLimit('MAX_AGE_DAYS', MAX_AGE_DAYS)
+      || !isUsableLimit('MAX_DELETIONS_PER_RUN', MAX_DELETIONS_PER_RUN)) {
       return;
     }
 
@@ -52,15 +59,33 @@ async function cleanupFiles() {
       .slice(0, MAX_FILES)
       .filter(file => file.lastModified.getTime() < cutoffDate.getTime());
 
-    if (overLimit.length + tooOld.length > 0) {
+    const doomed = overLimit.length + tooOld.length;
+
+    if (doomed > 0) {
       console.warn(
-        `⚠️  Cleanup will delete ${overLimit.length + tooOld.length} file(s): ` +
+        `⚠️  Cleanup will delete ${doomed} file(s): ` +
         `${overLimit.length} over the MAX_FILES=${MAX_FILES} limit, ` +
         `${tooOld.length} older than MAX_AGE_DAYS=${MAX_AGE_DAYS} days.`
       );
       if (overLimit.length > 0) {
         console.warn(`   Oldest over the limit: ${overLimit[overLimit.length - 1].filename}`);
       }
+    }
+
+    // A warning in a startup log is not a safety mechanism - nobody reads it
+    // in time. Normal operation removes a handful of files per run, so a run
+    // that suddenly wants to remove far more is a configuration change or a
+    // widened listing, not routine housekeeping. Refuse and make it a decision.
+    if (doomed > MAX_DELETIONS_PER_RUN) {
+      console.error(
+        `\n❌ Refusing to delete ${doomed} files in one run - the limit is ` +
+        `MAX_DELETIONS_PER_RUN=${MAX_DELETIONS_PER_RUN}.`
+      );
+      console.error('   This usually means MAX_FILES or MAX_AGE_DAYS is lower than the bucket');
+      console.error('   has grown to, or that more file types just became visible to cleanup.');
+      console.error('   Nothing was deleted. Raise the right limit deliberately, or raise');
+      console.error('   MAX_DELETIONS_PER_RUN if this really is the intended cleanup.\n');
+      return;
     }
 
     // Delete files that exceed the maximum count
