@@ -217,7 +217,7 @@ There are two ways to use the bot:
    - Attach a `.prg`, `.d64` or `.sid` file to your message
    - Using this mode also tells you when a file is of a type the bot cannot use
 
-Either way the original file is stored in MinIO and stays reachable from the reply.
+Either way the original file is stored in MinIO and stays reachable from the reply until cleanup retires it - see File Management below.
 
 ## File Management
 

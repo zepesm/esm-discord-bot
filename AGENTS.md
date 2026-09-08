@@ -15,7 +15,10 @@ src/handlers/             one class per behaviour, see below
 src/file-types.js         the single source of truth for extensions
 src/minio-service.js      storage; listFiles is the choke point for everything
 src/file-cleanup.js       retention - the most dangerous file in the repo
-src/sid-*.js              SID header parsing, DSP, render orchestration
+src/sid-header.js         PSID/RSID header parsing, pure, no emulator
+src/sid-dsp.js            fade, deinterleave, peak - pure maths over PCM
+src/sid-service.js        render queue, worker lifecycle, timeouts
+src/sid-flavour.js        every line the bot says out loud about a tune
 src/sid-render.worker.mjs the only ESM file, and the only place WASM runs
 test/                     node:test, no framework
 ```
