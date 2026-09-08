@@ -1,6 +1,6 @@
 # C64 Discord Bot
 
-A Discord bot that allows users to upload Commodore 64 .prg files and generates playable emulator links. Files are stored in MinIO, an S3-compatible object storage.
+A Discord bot for Commodore 64 files. Upload a `.prg` or `.d64` and it replies with a link that boots it in an online emulator; upload a `.sid` and it renders the tune to MP3 so it plays inline in Discord. Files are stored in MinIO, an S3-compatible object storage.
 
 ## Features
 
@@ -71,7 +71,7 @@ System environment variables take precedence over those defined in the `.env` fi
 | `SID_FADE_SECONDS`   | Fade-out at the end of the render        | `5`                       |
 | `SID_MP3_BITRATE`    | MP3 bitrate in kbps                      | `128`                     |
 | `SID_ENGINE`         | `sidlite` (fast) or `residfp` (accurate) | `sidlite`                 |
-| `SID_RENDER_TIMEOUT_MS` | Per-tune render time limit            | `60000`                   |
+| `SID_RENDER_TIMEOUT_MS` | Minimum per-tune render limit; scales up with the render length | `60000` |
 | `SID_QUEUE_LIMIT`    | Queued renders before rejecting          | `8`                       |
 | `SID_MAX_INPUT_BYTES` | Largest accepted .sid file              | `1048576`                 |
 | `SID_MAX_MP3_BYTES`  | Largest MP3 the bot will attach          | `8388608`                 |
@@ -194,6 +194,8 @@ npm start
 - Send Messages
 - Attach Files
 - Read Message History
+- Manage Messages - the bot deletes the original upload after replying, and
+  deleting someone else's message requires it
 
 ## Usage
 
@@ -212,11 +214,10 @@ There are two ways to use the bot:
 
 2. **Manual Mode**:
    - Type `c64` in a Discord channel followed by your message
-   - Attach a `.prg` file to your message
-   - The bot will process the file and respond with an emulator link
-   - Using this mode will also give you feedback about non-PRG files
+   - Attach a `.prg`, `.d64` or `.sid` file to your message
+   - Using this mode also tells you when a file is of a type the bot cannot use
 
-The bot will save the file to MinIO storage and respond with a link to play it in the online C64 emulator.
+Either way the original file is stored in MinIO and stays reachable from the reply.
 
 ## File Management
 
@@ -224,7 +225,14 @@ The bot includes automatic file management:
 
 - Only keeps the latest 100 files, counting `.prg`, `.d64` and `.sid` together
 - Automatically deletes files older than 7 days
-- You can adjust these settings using the `MAX_FILES` and `MAX_AGE_DAYS` environment variables
+- Adjust both with `MAX_FILES` and `MAX_AGE_DAYS`
+
+A single run never deletes more than `MAX_DELETIONS_PER_RUN` files, oldest
+first, and says so loudly when it has to defer the rest. Raising `MAX_FILES`
+or widening the managed file types makes previously unmanaged objects eligible
+for deletion at once, so **check the deployed values against the real object
+count before such a change goes out** - deletion is not reversible and the
+bucket has no versioning.
 
 ## Modular Architecture
 
@@ -242,7 +250,7 @@ The bot uses a modular architecture based on handlers, making it easy to add new
 - `SidFileHandler`: Renders .sid music to MP3 on a worker thread and attaches it
 - `HelpHandler`: Provides help information when requested
 - `PingHandler`: Simple ping-pong command for testing
-- `ReactionHandler`: Responds to emoji reactions on messages with .prg files
+- `ReactionHandler`: Responds to emoji reactions on messages carrying C64 files
 
 ### Creating Custom Handlers
 
@@ -254,6 +262,13 @@ To add new functionality to the bot, you can create custom handlers:
 4. Register your handler in `src/handlers/index.js`
 
 See `src/handlers/README.md` for detailed documentation and examples.
+
+## Contributing
+
+`AGENTS.md` covers how to work in this repository - the architecture traps, the
+test conventions, and the failure modes that have already reached production.
+`backlog.md` records decisions deliberately deferred, with the measurements
+behind them.
 
 ## Troubleshooting MinIO Connection
 
